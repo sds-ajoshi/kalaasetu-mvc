@@ -2,7 +2,6 @@
 version: '3.8'
 
 services:
-  # The API Gateway Service
   api_gateway:
     build:
       context: .
@@ -10,18 +9,15 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Mount local code for live-reloading during development
       - ./services:/app/services
     environment:
-      # Here we define the URL for the graphics service.
-      # 'graphics_service' is the name of the other service defined below.
-      # Docker Compose provides DNS resolution between services.
       - GRAPHICS_SERVICE_URL=http://graphics_service:8001/generate/graphics
+      - AUDIO_SERVICE_URL=http://audio_service:8002/generate/audio
     command: uvicorn services.api_gateway.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       - graphics_service
+      - audio_service
 
-  # The Graphics Generation Service
   graphics_service:
     build:
       context: .
@@ -29,6 +25,27 @@ services:
     ports:
       - "8001:8001"
     volumes:
-      # Mount local code for live-reloading
       - ./services:/app/services
+      - huggingface_cache:/root/.cache/huggingface
     command: uvicorn services.graphics_service.main:app --host 0.0.0.0 --port 8001 --reload
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  audio_service:
+    build:
+      context: .
+      dockerfile: ./services/audio_service/Dockerfile
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./services:/app/services
+      - huggingface_cache:/root/.cache/huggingface # Reuse cache for TTS models
+    command: uvicorn services.audio_service.main:app --host 0.0.0.0 --port 8002 --reload
+
+volumes:
+  huggingface_cache:

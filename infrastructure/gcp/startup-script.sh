@@ -1,34 +1,38 @@
 #!/bin/bash
-# startup-script.sh - To be used with the Terraform configuration
+set -e # Exit immediately if a command exits with a non-zero status.
 
-# Update and install basic dependencies
+echo "--- Starting Kalaa-Setu VM Setup ---"
+
+# 1. Update system and install basic dependencies
 sudo apt-get update
-sudo apt-get install -y git python3-pip ffmpeg
+sudo apt-get install -y git docker.io docker-compose
 
-# Install Docker
-sudo apt-get install -y docker.io
-sudo systemctl start docker
-sudo systemctl enable docker
-sudo usermod -aG docker $USER
+# 2. Configure Docker to be used without sudo
+# The default user on GCP's Ubuntu images is 'ubuntu'
+sudo usermod -aG docker
+echo "Docker configured for non-sudo access."
 
-# Install NVIDIA Container Toolkit
+# 3. Install NVIDIA Container Toolkit for GPU access in Docker
+# This allows Docker containers to see and use the NVIDIA GPU
+echo "Installing NVIDIA Container Toolkit..."
 distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
 curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
 curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
 sudo apt-get update
-sudo apt-get install -y nvidia-docker2
+sudo apt-get install -y nvidia-container-toolkit
 sudo systemctl restart docker
+echo "NVIDIA Container Toolkit installed and Docker restarted."
 
-# Install Python libraries
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-pip3 install fastapi "uvicorn[standard]" diffusers transformers accelerate sentencepiece beautifulsoup4
-pip3 install coqui_tts # For Coqui TTS
-pip3 install google-cloud-translate-v2 # For language translation
-pip3 install clip-score # For performance metrics
+# 4. Clone the application repository
+echo "Cloning the Kalaa-Setu repository..."
+cd ~
+git clone https://github.com/sds-ajoshi/kalaasetu-mvc.git
+cd kalaasetu-mvc
 
-# Clone model repositories (optional, can be done inside Docker)
-# git clone https://github.com/huggingface/diffusers.git
-# git clone https://github.com/modelscope/modelscope.git
-# ... etc.
+# 5. Launch the application using Docker Compose
+echo "Starting the application with Docker Compose..."
+# Use the 'ubuntu' user to run docker-compose
+# The '-d' flag runs the containers in detached mode
+sudo docker-compose up -d --build
 
-echo "Kalaa-Setu environment setup complete."
+echo "--- Kalaa-Setu Setup Complete. Application is starting. ---"
