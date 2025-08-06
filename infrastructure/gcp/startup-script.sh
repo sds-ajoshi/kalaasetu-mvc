@@ -9,7 +9,7 @@ sudo apt-get install -y git docker.io docker-compose
 
 # 2. Configure Docker to be used without sudo
 # The default user on GCP's Ubuntu images is 'ubuntu'
-sudo usermod -aG docker
+sudo usermod -aG docker ubuntu
 echo "Docker configured for non-sudo access."
 
 # 3. Install NVIDIA Container Toolkit for GPU access in Docker
