@@ -17,6 +17,7 @@ services:
     depends_on:
       - graphics_service
       - audio_service
+      - video_service
 
   graphics_service:
     build:
@@ -46,6 +47,17 @@ services:
       - ./services:/app/services
       - huggingface_cache:/root/.cache/huggingface # Reuse cache for TTS models
     command: uvicorn services.audio_service.main:app --host 0.0.0.0 --port 8002 --reload
+
+  video_service:
+    build:
+      context: .
+      dockerfile: ./services/video_service/Dockerfile
+    ports:
+      - "8003:8003"
+    volumes:
+      # We need to share the main services directory
+      - ./services:/app/services
+    command: uvicorn services.video_service.main:app --host 0.0.0.0 --port 8003 --reload
 
 volumes:
   huggingface_cache:
