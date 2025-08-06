@@ -1,0 +1,34 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  # The API Gateway Service
+  api_gateway:
+    build:
+      context: .
+      dockerfile: ./services/api_gateway/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount local code for live-reloading during development
+      - ./services:/app/services
+    environment:
+      # Here we define the URL for the graphics service.
+      # 'graphics_service' is the name of the other service defined below.
+      # Docker Compose provides DNS resolution between services.
+      - GRAPHICS_SERVICE_URL=http://graphics_service:8001/generate/graphics
+    command: uvicorn services.api_gateway.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      - graphics_service
+
+  # The Graphics Generation Service
+  graphics_service:
+    build:
+      context: .
+      dockerfile: ./services/graphics_service/Dockerfile
+    ports:
+      - "8001:8001"
+    volumes:
+      # Mount local code for live-reloading
+      - ./services:/app/services
+    command: uvicorn services.graphics_service.main:app --host 0.0.0.0 --port 8001 --reload
