@@ -1,0 +1,4 @@
+# services/requirements.txt
+fastapi
+uvicorn[standard]
+httpx
