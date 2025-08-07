@@ -11,48 +11,31 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 
-# Set up FastAPI
+# Accept Coqui CPML TOS non-interactively
+os.environ.setdefault("COQUI_TOS_AGREED", "1")
+
+# FastAPI app
 app = FastAPI(title="Kalaa-Setu Audio Service")
 
-# 🛡️ Handle license acceptance for TTS models
-def setup_license_acceptance():
-    """Set up automatic license acceptance for TTS models"""
-    # Set environment variable to skip license check
-    os.environ["TTS_ACCEPT_LICENSE"] = "true"
-    
-    # Create the cache directory if it doesn't exist
-    cache_dir = os.path.expanduser("~/.cache/tts")
-    os.makedirs(cache_dir, exist_ok=True)
-    
-    # Create a tos.txt file with license acceptance
-    tos_file = os.path.join(cache_dir, "tos.txt")
-    if not os.path.exists(tos_file):
-        with open(tos_file, "w") as f:
-            f.write("I agree to the terms of the non-commercial CPML: https://coqui.ai/cpml\n")
-
-# 🛡️ Mock input function to automatically accept license
-original_input = input
-def mock_input(prompt=""):
-    if "agree to the terms" in prompt.lower() or "y/n" in prompt.lower():
-        return "y"
-    return original_input(prompt)
-
-# Replace the input function
-import builtins
-builtins.input = mock_input
-
-# 🧠 Model setup
+# Model setup
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
 
-# Set up license acceptance before model loading
-setup_license_acceptance()
-
-# Initialize model with error handling
 try:
-    model = Xtts.init_from_config(XttsConfig())
-    os.environ.setdefault("COQUI_TOS_AGREED", "1")
-    model.load_checkpoint(config=model.config, checkpoint_dir=ModelManager().download_model(MODEL_NAME), eval=True)
-    model.cuda()  # Move model to GPU
+    manager = ModelManager()
+    model_dir = manager.download_model(MODEL_NAME)
+    # download_model may return (path, meta); normalize to path
+    if isinstance(model_dir, tuple):
+        model_dir = model_dir[0]
+
+    cfg = XttsConfig()
+    cfg.load_json(os.path.join(model_dir, "config.json"))
+
+    model = Xtts.init_from_config(cfg)
+    model.load_checkpoint(config=cfg, checkpoint_dir=model_dir, eval=True)
+
+    if torch.cuda.is_available():
+        model.cuda()
+
     print("✅ TTS Model loaded successfully")
 except Exception as e:
     print(f"❌ Error loading TTS model: {e}")
