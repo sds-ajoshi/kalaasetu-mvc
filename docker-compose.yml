@@ -52,7 +52,9 @@ services:
       - kalaasetu-net
     volumes:
       - ./services:/app/services
-      - huggingface_cache:/root/.cache/huggingface # Reuse cache for TTS models
+      - huggingface_cache:/root/.cache/huggingface
+    environment:
+      - COQUI_TOS_AGREED=1
     command: uvicorn services.audio_service.main:app --host 0.0.0.0 --port 8002 --reload
 
   video_service:

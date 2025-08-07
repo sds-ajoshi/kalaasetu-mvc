@@ -50,6 +50,7 @@ setup_license_acceptance()
 # Initialize model with error handling
 try:
     model = Xtts.init_from_config(XttsConfig())
+    os.environ.setdefault("COQUI_TOS_AGREED", "1")
     model.load_checkpoint(config=model.config, checkpoint_dir=ModelManager().download_model(MODEL_NAME), eval=True)
     model.cuda()  # Move model to GPU
     print("✅ TTS Model loaded successfully")
