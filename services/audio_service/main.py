@@ -27,6 +27,17 @@ def setup_license_acceptance():
         with open(tos_file, "w") as f:
             f.write("I agree to the terms of the non-commercial CPML: https://coqui.ai/cpml\n")
 
+# 🛡️ Mock input function to automatically accept license
+original_input = input
+def mock_input(prompt=""):
+    if "agree to the terms" in prompt.lower() or "y/n" in prompt.lower():
+        return "y"
+    return original_input(prompt)
+
+# Replace the input function
+import builtins
+builtins.input = mock_input
+
 # 🧠 Model setup
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
 
@@ -43,7 +54,7 @@ except Exception as e:
     print(f"❌ Error loading TTS model: {e}")
     model = None
 
-# �� Input schema
+#  Input schema
 class AudioRequest(BaseModel):
     text: str
     tone: str = "neutral"
