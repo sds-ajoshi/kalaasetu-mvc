@@ -1,4 +1,3 @@
-# services/graphics_service/main.py
 from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager
 import torch
@@ -24,53 +23,45 @@ async def lifespan(app: FastAPI):
     pipe.to("cuda")
     model_pipeline["sdxl"] = pipe
     print("SDXL Model Loaded.")
-    
-    yield # The application runs here
-    
-    # Clean up and release memory
+
+    yield
+
     print("Releasing model resources...")
     model_pipeline.clear()
 
 
 app = FastAPI(title="Graphics Generation Service", lifespan=lifespan)
 
-# Define the input data structure for type checking and API docs
+
 class GraphicsRequest(BaseModel):
     text: str
-    parameters: dict = {}
+    tone: str = "neutral"
+    domain: str = "general"
+    environment: str = "neutral"
+
 
 @app.post("/generate/graphics")
-async def generate_graphics(request: GraphicsRequest):
-    """
-    Generates graphics using the SDXL model based on text and parameters.
-    """
-    if "sdxl" not in model_pipeline:
-        raise HTTPException(status_code=503, detail="Model is not ready. Please try again later.")
+async def generate_graphic(req: GraphicsRequest):
+    if not req.text:
+        raise HTTPException(status_code=400, detail="Input text is required.")
 
-    # --- Basic Prompt Engineering ---
-    # Combine user text with parameters for a richer prompt
-    style_prompt = "infographic, digital art, clean vector style"
-    color_scheme = request.parameters.get("color_scheme", "vibrant")
-    tone = request.parameters.get("tone", "neutral")
+    # Build enhanced prompt
+    prompt = (
+        f"{req.text}, illustrated in a {req.tone} tone, "
+        f"related to {req.domain}, set in a {req.environment} background"
+    )
 
-    final_prompt = f"{request.text}, in a {tone} tone, {style_prompt}, {color_scheme} colors"
-    print(f"Generating image for prompt: {final_prompt}")
-
-    # --- Model Inference ---
-    pipe = model_pipeline["sdxl"]
     try:
-        image = pipe(prompt=final_prompt).images[0]
-
-        # --- Convert image to Base64 to return in JSON ---
-        buffered = BytesIO()
-        image.save(buffered, format="PNG")
-        img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-
-        return {
-            "status": "success",
-            "prompt": final_prompt,
-            "image_base64": img_str
-        }
+        image = model_pipeline["sdxl"](prompt=prompt).images[0]
     except Exception as e:
-        print(f"An error occurred during image generation: {e}")
-        raise HTTPException(status_code=500, detail="Failed to generate image.")
+        raise HTTPException(status_code=500, detail=f"Image generation failed: {str(e)}")
+
+    # Convert image to base64
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    image_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+    return {
+        "prompt": prompt,
+        "image": image_base64
+    }

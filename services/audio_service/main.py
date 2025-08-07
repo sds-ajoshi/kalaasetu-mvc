@@ -6,15 +6,14 @@ from TTS.api import TTS
 import torch
 from pydantic import BaseModel
 import io
+import base64
 
 # Check for CUDA availability
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
 model_pipeline = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Load the multilingual TTS model
     print(f"Loading XTTS model on device: {device}")
     model_name = "tts_models/multilingual/multi-dataset/xtts_v2"
     tts = TTS(model_name).to(device)
@@ -22,7 +21,7 @@ async def lifespan(app: FastAPI):
     print("XTTS Model Loaded.")
     
     yield
-    
+
     print("Releasing model resources...")
     model_pipeline.clear()
 
@@ -30,38 +29,58 @@ app = FastAPI(title="Audio Generation Service", lifespan=lifespan)
 
 class AudioRequest(BaseModel):
     text: str
-    language: str = "en" # Default to English
+    language: str = "en"  # Default to English
+    tone: str = "neutral" # Tone for emotion-aware synthesis (optional)
 
 @app.post("/generate/audio")
 async def generate_audio(request: AudioRequest):
     """
-    Generates audio using a multilingual XTTS model.
-    Supported languages include en, es, fr, de, it, pt, pl, tr, ru, nl, cs, ar, zh-cn, ja, hu, ko, hi
+    Generate audio and subtitles from text using Coqui XTTS.
     """
-    if "xtts" not in model_pipeline:
-        raise HTTPException(status_code=503, detail="Model is not ready.")
+    if not request.text:
+        raise HTTPException(status_code=400, detail="Text input is required.")
 
-    tts = model_pipeline["xtts"]
-    
+    xtts = model_pipeline.get("xtts")
+    if not xtts:
+        raise HTTPException(status_code=500, detail="TTS model not loaded.")
+
+    # Voice customization: Use speaker embeddings or voice description by tone
+    speaker_wav = None
+    if request.tone.lower() in {"serious", "calm"}:
+        # Use slower speed or lower energy voice
+        speed = 0.95
+        emotion = "neutral"
+    elif request.tone.lower() in {"excited", "happy"}:
+        speed = 1.05
+        emotion = "excited"
+    elif request.tone.lower() in {"sad", "emotional"}:
+        speed = 0.9
+        emotion = "sad"
+    else:
+        speed = 1.0
+        emotion = "neutral"
+
+    # Generate audio
     try:
-        # Generate speech to a file-like object in memory
-        wav_buffer = io.BytesIO()
-        # Note: XTTS requires a speaker_wav for voice cloning. For now, we use a default voice.
-        # For a real implementation, you'd have a library of speaker wav files.
-        # Here we are using the model's default synthesizer which may not require a speaker wav.
-        tts.tts_to_file(
+        wav = xtts.tts(
             text=request.text,
-            file_path=wav_buffer,
             language=request.language,
-            # A speaker wav is needed for high-quality XTTSv2 voice cloning. 
-            # We will let the model use its default if possible, or you might need a reference audio.
-            # For this demo, let's assume default voice works.
+            speaker_wav=speaker_wav,
+            emotion=emotion
         )
-        wav_buffer.seek(0)
-        
-        # Return the raw WAV audio file
-        return Response(content=wav_buffer.read(), media_type="audio/wav")
-
     except Exception as e:
-        print(f"An error occurred during audio generation: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Audio generation failed: {str(e)}")
+
+    # Write audio to buffer
+    buffer = io.BytesIO()
+    xtts.save_wav(wav, buffer)
+    audio_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+    # Generate mock subtitle data (can be replaced by Whisper)
+    subtitles = [{"start": 0.0, "end": 2.0, "text": request.text}]
+
+    return {
+        "audio": audio_base64,
+        "subtitles": subtitles,
+        "tone_used": request.tone
+    }

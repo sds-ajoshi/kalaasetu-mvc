@@ -1,105 +1,150 @@
-# services/api_gateway/main.py
 import os
 import asyncio
 import base64
 import httpx
-from fastapi import FastAPI, HTTPException
+import requests
+from bs4 import BeautifulSoup
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response
 
 app = FastAPI(title="Kalaa-Setu API Gateway")
 
-# Get service URLs from environment variables
+# Microservice URLs
 GRAPHICS_SERVICE_URL = os.getenv("GRAPHICS_SERVICE_URL", "http://localhost:8001/generate/graphics")
 AUDIO_SERVICE_URL = os.getenv("AUDIO_SERVICE_URL", "http://localhost:8002/generate/audio")
 VIDEO_SERVICE_URL = os.getenv("VIDEO_SERVICE_URL", "http://localhost:8003/create_video")
+TRANSLATION_SERVICE_URL = os.getenv("TRANSLATION_SERVICE_URL", "http://localhost:8004/translate")
+
 
 @app.get("/")
 def read_root():
-    """A simple endpoint to confirm the gateway is running."""
     return {"message": "Kalaa-Setu API Gateway is running."}
-
-
-@app.post("/generate/video_from_text")
-async def generate_content(request_data: dict):
-    """
-    Main endpoint to generate content.
-    Orchestrates parallel calls to the graphics and audio services.
-    """
-    text = request_data.get("text")
-    if not text:
-        raise HTTPException(status_code=400, detail="Input text is required.")
-
-    # Prepare individual requests for each downstream service
-    graphics_payload = {"text": text, "parameters": request_data.get("parameters", {})}
-    audio_payload = {"text": text, "language": request_data.get("language", "en")}
-
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            # --- Run calls in parallel for better performance ---
-            graphics_task = client.post(GRAPHICS_SERVICE_URL, json=graphics_payload)
-            audio_task = client.post(AUDIO_SERVICE_URL, json=audio_payload)
-
-            # Wait for both tasks to complete using asyncio.gather
-            results = await asyncio.gather(graphics_task, audio_task, return_exceptions=True)
-
-            graphics_response, audio_response = results
-
-            # --- Error handling for each service ---
-            if isinstance(graphics_response, Exception):
-                raise HTTPException(status_code=503, detail=f"Graphics service failed: {graphics_response}")
-            if isinstance(audio_response, Exception):
-                raise HTTPException(status_code=503, detail=f"Audio service failed: {audio_response}")
-
-            if graphics_response.status_code != 200:
-                raise HTTPException(status_code=graphics_response.status_code, detail=f"Graphics service error: {graphics_response.text}")
-            if audio_response.status_code != 200:
-                 raise HTTPException(status_code=audio_response.status_code, detail=f"Audio service error: {audio_response.text}")
-
-
-            # --- Combine results into a single JSON response ---
-            # We base64 encode the audio to package it neatly in the JSON
-            return {
-                "status": "success",
-                "generated_content": {
-                    "graphics": graphics_response.json(),
-                    "audio": {
-                        "format": "wav",
-                        "content_b64": base64.b64encode(audio_response.content).decode("utf-8")
-                    }
-                }
-            }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred during orchestration: {e}")
 
 
 @app.post("/generate/audio_only")
 async def generate_audio_only(request_data: dict):
-    """
-    Endpoint to generate only audio. Useful for debugging.
-    """
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(AUDIO_SERVICE_URL, json=request_data)
-            response.raise_for_status()
-        
-        return Response(content=response.content, media_type=response.headers['content-type'])
+    text = request_data.get("text")
+    tone = request_data.get("tone", "neutral")
+    lang = request_data.get("language", "eng_Latn")
 
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=503, detail=f"Error communicating with the audio service: {exc}")
-    
+    if not text:
+        raise HTTPException(status_code=400, detail="Text input is required.")
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(AUDIO_SERVICE_URL, json={
+            "text": text,
+            "tone": tone,
+            "language": lang
+        })
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=500, detail="Failed to generate audio.")
+
+    return response.json()
+
+
+@app.post("/generate/video_from_text")
+async def generate_content(request_data: dict):
+    text = request_data.get("text")
+    tone = request_data.get("tone", "neutral")
+    domain = request_data.get("domain", "general")
+    environment = request_data.get("environment", "neutral")
+    src_lang = request_data.get("language", "eng_Latn")  # Language code: default to English
+
+    if not text:
+        raise HTTPException(status_code=400, detail="Text input is required.")
+
+    original_text = text
+    english_text = text
+
+    # Translate if input is not English
+    if src_lang != "eng_Latn":
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(TRANSLATION_SERVICE_URL, json={
+                "text": text,
+                "src_lang": src_lang,
+                "tgt_lang": "eng_Latn"
+            })
+            if resp.status_code != 200:
+                raise HTTPException(status_code=500, detail="Translation failed.")
+            english_text = resp.json().get("translated_text")
+
+    async with httpx.AsyncClient() as client:
+        audio_task = client.post(AUDIO_SERVICE_URL, json={
+            "text": original_text,
+            "tone": tone,
+            "language": src_lang
+        })
+        graphics_task = client.post(GRAPHICS_SERVICE_URL, json={
+            "text": english_text,
+            "tone": tone,
+            "domain": domain,
+            "environment": environment
+        })
+
+        audio_response, graphics_response = await asyncio.gather(audio_task, graphics_task)
+
+        if audio_response.status_code != 200 or graphics_response.status_code != 200:
+            raise HTTPException(status_code=500, detail="Failed to generate audio or graphics.")
+
+        audio_data = audio_response.json()
+        image_data = graphics_response.json()
+
+    video_payload = {
+        "audio": audio_data.get("audio"),
+        "image": image_data.get("image"),
+        "subtitles": audio_data.get("subtitles"),
+        "format": "mp4"
+    }
+
+    async with httpx.AsyncClient() as client:
+        video_response = await client.post(VIDEO_SERVICE_URL, json=video_payload)
+
+    if video_response.status_code != 200:
+        raise HTTPException(status_code=500, detail="Failed to create video.")
+
+    return Response(content=video_response.content, media_type="video/mp4")
+
+
 @app.post("/create/final_video")
 async def create_final_video(request_data: dict):
-    """
-    Top-level endpoint to trigger the full text-to-video pipeline.
-    """
-    try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            response = await client.post(VIDEO_SERVICE_URL, json=request_data)
-            response.raise_for_status()
-        
-        # Stream the video file back to the client
-        return Response(content=response.content, media_type=response.headers['content-type'])
+    required_keys = ["audio", "image"]
+    for key in required_keys:
+        if key not in request_data:
+            raise HTTPException(status_code=400, detail=f"{key} is required.")
 
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=503, detail=f"Error communicating with the video service: {exc}")
+    async with httpx.AsyncClient() as client:
+        response = await client.post(VIDEO_SERVICE_URL, json=request_data)
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=500, detail="Video creation failed.")
+
+    return Response(content=response.content, media_type="video/mp4")
+
+
+@app.get("/generate_from_pib")
+async def generate_from_pib(url: str = Query(..., description="PIB press release URL")):
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch PIB page: {str(e)}")
+
+    soup = BeautifulSoup(response.content, "html.parser")
+    content_div = soup.find("div", {"id": "content"}) or soup.find("div", class_="content-area")
+
+    if not content_div:
+        raise HTTPException(status_code=400, detail="Could not locate PIB content block.")
+
+    text = content_div.get_text(separator="\n", strip=True)
+    title = soup.title.string.strip() if soup.title else "PIB Release"
+
+    full_text = f"{title}\n\n{text}"
+
+    return await generate_content({
+        "text": full_text,
+        "tone": "formal",
+        "domain": "governance",
+        "environment": "official",
+        "language": "eng_Latn"
+    })

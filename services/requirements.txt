@@ -10,3 +10,4 @@ diffusers
 transformers
 accelerate
 TTS
+openai-whisper

@@ -1,13 +1,13 @@
 #!/bin/bash
-set -e  # Exit immediately on any error
-set -o pipefail  # Catch errors in pipelines
+set -e
+set -o pipefail
 
 echo "--- Starting Kalaa-Setu VM Setup ---"
 
 # 1. Update system and install basic dependencies
 echo "[1/6] Updating system and installing dependencies..."
 sudo apt-get update -y
-sudo apt-get install -y git docker.io docker-compose curl gnupg lsb-release
+sudo apt-get install -y git docker.io docker-compose curl gnupg lsb-release python3-venv python3-pip
 
 # 2. Configure Docker to be used without sudo
 DOCKER_USER="ubuntu"
@@ -43,14 +43,23 @@ else
     cd kalaasetu-mvc && git pull
 fi
 
-# 5. Optional: Export environment variables if needed (e.g., Hugging Face token)
-# echo "HUGGING_FACE_TOKEN=..." >> /home/$DOCKER_USER/kalaasetu-mvc/.env
+# 5. Pre-warm HuggingFace cache for IndicTrans2 models
+echo "[4/6] Pre-warming IndicTrans2 models from HuggingFace..."
+sudo -u $DOCKER_USER bash -c "
+  python3 -m pip install --upgrade pip &&
+  python3 -m pip install transformers torch sentencepiece &&
+  python3 -c '
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+AutoTokenizer.from_pretrained(\"ai4bharat/indictrans2-en-indic-1B\")
+AutoModelForSeq2SeqLM.from_pretrained(\"ai4bharat/indictrans2-en-indic-1B\")
+AutoTokenizer.from_pretrained(\"ai4bharat/indictrans2-indic-en-1B\")
+AutoModelForSeq2SeqLM.from_pretrained(\"ai4bharat/indictrans2-indic-en-1B\")
+'
+"
 
 # 6. Start application with Docker Compose
-echo "[4/6] Starting the application with Docker Compose..."
+echo "[5/6] Starting the application with Docker Compose..."
 cd /home/$DOCKER_USER/kalaasetu-mvc
-
-# Ensure docker-compose runs as correct user (non-root)
 sudo -u $DOCKER_USER docker-compose up -d --build
 
 echo "--- Kalaa-Setu VM Setup Complete. Application should be running. ---"
