@@ -6,6 +6,7 @@ import requests
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 app = FastAPI(title="Kalaa-Setu API Gateway")
 
@@ -121,35 +122,43 @@ async def create_final_video(request_data: dict):
 
     return Response(content=response.content, media_type="video/mp4")
 
-
 @app.get("/generate_from_pib")
 async def generate_from_pib(url: str = Query(..., description="PIB press release URL")):
+    # Step 1: Force English version
     try:
-        response = requests.get(url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-        })
+        parsed_url = urlparse(url)
+        query_params = parse_qs(parsed_url.query)
+        query_params['lang'] = ['1']  # Force English version
+        new_query = urlencode(query_params, doseq=True)
+        english_url = urlunparse((
+            parsed_url.scheme,
+            parsed_url.netloc,
+            parsed_url.path,
+            parsed_url.params,
+            new_query,
+            parsed_url.fragment
+        ))
+
+        # Step 2: Fetch page content
+        response = requests.get(english_url, timeout=15)
         response.raise_for_status()
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to fetch PIB page: {str(e)}")
 
-    soup = BeautifulSoup(response.content, "html.parser")
+    # Step 3: Parse PIB content using the correct class
+    soup = BeautifulSoup(response.text, "html.parser")
+    content_div = soup.find("div", class_="innner-page-main-about-us-content-right-part")
 
-    # Try all known PIB content selectors
-    content_block = (
-        soup.find("span", {"id": "ContentPlaceHolder1_lblContents"}) or
-        soup.find("div", {"id": "content"}) or
-        soup.find("div", class_="content-area") or
-        soup.find("div", class_="col-sm-12")
-    )
-
-    if not content_block:
+    if not content_div:
         raise HTTPException(status_code=400, detail="Could not locate PIB content block.")
 
-    text = content_block.get_text(separator="\n", strip=True)
+    # Step 4: Extract text and title
+    text = content_div.get_text(separator="\n", strip=True)
     title = soup.title.string.strip() if soup.title else "PIB Release"
 
     full_text = f"{title}\n\n{text}"
 
+    # Step 5: Generate video
     return await generate_content({
         "text": full_text,
         "tone": "formal",
