@@ -125,20 +125,27 @@ async def create_final_video(request_data: dict):
 @app.get("/generate_from_pib")
 async def generate_from_pib(url: str = Query(..., description="PIB press release URL")):
     try:
-        response = requests.get(url)
+        response = requests.get(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        })
         response.raise_for_status()
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to fetch PIB page: {str(e)}")
 
     soup = BeautifulSoup(response.content, "html.parser")
 
-    # ✅ New logic to locate PIB content block
-    content_span = soup.find("span", {"id": "ContentPlaceHolder1_lblContents"})
+    # Try all known PIB content selectors
+    content_block = (
+        soup.find("span", {"id": "ContentPlaceHolder1_lblContents"}) or
+        soup.find("div", {"id": "content"}) or
+        soup.find("div", class_="content-area") or
+        soup.find("div", class_="col-sm-12")
+    )
 
-    if not content_span:
+    if not content_block:
         raise HTTPException(status_code=400, detail="Could not locate PIB content block.")
 
-    text = content_span.get_text(separator="\n", strip=True)
+    text = content_block.get_text(separator="\n", strip=True)
     title = soup.title.string.strip() if soup.title else "PIB Release"
 
     full_text = f"{title}\n\n{text}"
