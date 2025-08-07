@@ -1,17 +1,28 @@
-# services/audio_service/Dockerfile
-FROM python:3.10-slim
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
 
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    TRANSFORMERS_CACHE=/app/.cache
+
+# System dependencies
+RUN apt-get update && apt-get install -y \
+    python3.10 python3.10-venv python3.10-dev python3-pip \
+    ffmpeg git curl sox libsndfile1 libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create working directory
 WORKDIR /app
 
-# Install system dependency for audio processing
-RUN apt-get update && apt-get install -y ffmpeg
+# Copy requirements early to leverage Docker cache
+COPY ./services/requirements.txt ./requirements.txt
 
-COPY ./services/requirements.txt /app/requirements.txt
-# Note: Installing TTS can take a while
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies
+RUN python3.10 -m pip install --upgrade pip && \
+    python3.10 -m pip install --no-cache-dir -r requirements.txt
 
-ENV COQUI_TOS_AGREED=1
-
+# Copy audio service code
 COPY ./services/audio_service /app/services/audio_service
 
-CMD ["uvicorn", "services.audio_service.main:app", "--host", "0.0.0.0", "--port", "8002"]
+# Set default command
+CMD ["uvicorn", "services.audio_service.main:app", "--host", "0.0.0.0", "--port", "8002", "--reload"]

@@ -1,86 +1,56 @@
-# services/audio_service/main.py
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import Response
-from contextlib import asynccontextmanager
-from TTS.api import TTS
-import torch
-from pydantic import BaseModel
-import io
+import os
 import base64
+import torch
+import tempfile
+from TTS.utils.manage import ModelManager
+from TTS.tts.configs.xtts_config import XttsConfig
+from TTS.tts.models.xtts import Xtts
+from torch.serialization import safe_globals
 
-# Check for CUDA availability
-device = "cuda" if torch.cuda.is_available() else "cpu"
-model_pipeline = {}
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from fastapi.responses import JSONResponse
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    print(f"Loading XTTS model on device: {device}")
-    model_name = "tts_models/multilingual/multi-dataset/xtts_v2"
-    tts = TTS(model_name).to(device)
-    model_pipeline["xtts"] = tts
-    print("XTTS Model Loaded.")
-    
-    yield
+# 🛡️ Allow deserialization of XttsConfig safely
+safe_globals().update({"TTS.tts.configs.xtts_config.XttsConfig": XttsConfig})
 
-    print("Releasing model resources...")
-    model_pipeline.clear()
+# Set up FastAPI
+app = FastAPI(title="Kalaa-Setu Audio Service")
 
-app = FastAPI(title="Audio Generation Service", lifespan=lifespan)
+# 🧠 Model setup
+MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
+model = Xtts.init_from_config(XttsConfig())
+model.load_checkpoint(config=model.config, checkpoint_dir=ModelManager().download_model(MODEL_NAME), eval=True)
+model.cuda()  # Move model to GPU
 
+# 🧾 Input schema
 class AudioRequest(BaseModel):
     text: str
-    language: str = "en"  # Default to English
-    tone: str = "neutral" # Tone for emotion-aware synthesis (optional)
+    tone: str = "neutral"
+    language: str = "eng_Latn"
 
 @app.post("/generate/audio")
-async def generate_audio(request: AudioRequest):
-    """
-    Generate audio and subtitles from text using Coqui XTTS.
-    """
-    if not request.text:
-        raise HTTPException(status_code=400, detail="Text input is required.")
-
-    xtts = model_pipeline.get("xtts")
-    if not xtts:
-        raise HTTPException(status_code=500, detail="TTS model not loaded.")
-
-    # Voice customization: Use speaker embeddings or voice description by tone
-    speaker_wav = None
-    if request.tone.lower() in {"serious", "calm"}:
-        # Use slower speed or lower energy voice
-        speed = 0.95
-        emotion = "neutral"
-    elif request.tone.lower() in {"excited", "happy"}:
-        speed = 1.05
-        emotion = "excited"
-    elif request.tone.lower() in {"sad", "emotional"}:
-        speed = 0.9
-        emotion = "sad"
-    else:
-        speed = 1.0
-        emotion = "neutral"
-
-    # Generate audio
+def generate_audio(req: AudioRequest):
     try:
-        wav = xtts.tts(
-            text=request.text,
-            language=request.language,
-            speaker_wav=speaker_wav,
-            emotion=emotion
+        # 🧠 Inference
+        outputs = model.synthesize(
+            text=req.text,
+            speaker_wav=None,
+            language=req.language,
+            split_sentences=True
         )
+
+        # Save to temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            outputs.save_wav(tmp.name)
+            tmp.seek(0)
+            audio_data = base64.b64encode(tmp.read()).decode("utf-8")
+
+        # 🧾 Return base64 audio and subtitles (stub for now)
+        return JSONResponse(content={
+            "audio": audio_data,
+            "subtitles": [{"text": req.text, "start": 0.0, "end": 5.0}]
+        })
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Audio generation failed: {str(e)}")
-
-    # Write audio to buffer
-    buffer = io.BytesIO()
-    xtts.save_wav(wav, buffer)
-    audio_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
-
-    # Generate mock subtitle data (can be replaced by Whisper)
-    subtitles = [{"start": 0.0, "end": 2.0, "text": request.text}]
-
-    return {
-        "audio": audio_base64,
-        "subtitles": subtitles,
-        "tone_used": request.tone
-    }
+        raise HTTPException(status_code=500, detail=str(e))
