@@ -17,6 +17,9 @@ app = FastAPI(title="Kalaa-Setu Audio Service")
 # 🛡️ Handle license acceptance for TTS models
 def setup_license_acceptance():
     """Set up automatic license acceptance for TTS models"""
+    # Set environment variable to skip license check
+    os.environ["TTS_ACCEPT_LICENSE"] = "true"
+    
     # Create the cache directory if it doesn't exist
     cache_dir = os.path.expanduser("~/.cache/tts")
     os.makedirs(cache_dir, exist_ok=True)
