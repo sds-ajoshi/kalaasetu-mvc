@@ -17,13 +17,18 @@ services:
       - graphics_service
       - audio_service
       - video_service
+    networks:
+      - kalaasetu-net
 
   graphics_service:
     build:
       context: .
       dockerfile: ./services/graphics_service/Dockerfile
+    container_name: graphics-service
     ports:
       - "8001:8001"
+    networks:
+      - kalaasetu-net
     volumes:
       - ./services:/app/services
       - huggingface_cache:/root/.cache/huggingface
@@ -40,8 +45,11 @@ services:
     build:
       context: .
       dockerfile: ./services/audio_service/Dockerfile
+    container_name: audio-service
     ports:
       - "8002:8002"
+    networks:
+      - kalaasetu-net
     volumes:
       - ./services:/app/services
       - huggingface_cache:/root/.cache/huggingface # Reuse cache for TTS models
@@ -51,8 +59,11 @@ services:
     build:
       context: .
       dockerfile: ./services/video_service/Dockerfile
+    container_name: video-service
     ports:
       - "8003:8003"
+    networks:
+      - kalaasetu-net
     volumes:
       # We need to share the main services directory
       - ./services:/app/services
@@ -60,9 +71,13 @@ services:
 
   translation_service:
     build:
-      context: ./services/translation_service
+      context: .
+      dockerfile: ./services/translation_service/Dockerfile
+    container_name: translation-service
     ports:
       - "8004:8004"
+    networks:
+      - kalaasetu-net
     environment:
       - TRANSFORMERS_CACHE=/app/.cache
 

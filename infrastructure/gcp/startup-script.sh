@@ -7,7 +7,10 @@ echo "--- Starting Kalaa-Setu VM Setup ---"
 # 1. Update system and install basic dependencies
 echo "[1/6] Updating system and installing dependencies..."
 sudo apt-get update -y
-sudo apt-get install -y git docker.io docker-compose curl gnupg lsb-release python3-venv python3-pip
+sudo apt-get install -y git docker.io curl gnupg lsb-release python3-venv python3-pip
+mkdir -p ~/.docker/cli-plugins/
+curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o ~/.docker/cli-plugins/docker-compose
+chmod +x ~/.docker/cli-plugins/docker-compose
 
 # 2. Configure Docker to be used without sudo
 DOCKER_USER="ubuntu"
