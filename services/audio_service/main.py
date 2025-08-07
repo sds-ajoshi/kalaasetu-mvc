@@ -10,6 +10,9 @@ from TTS.tts.models.xtts import Xtts
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse
+from torch.serialization import add_safe_globals
+# XttsConfig is already imported; allowlist it for torch.load safe unpickling
+add_safe_globals([XttsConfig])
 
 # Accept Coqui CPML TOS non-interactively
 os.environ.setdefault("COQUI_TOS_AGREED", "1")
