@@ -2,6 +2,7 @@ import os
 import base64
 import torch
 import tempfile
+import sys
 from TTS.utils.manage import ModelManager
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts
@@ -13,13 +14,36 @@ from fastapi.responses import JSONResponse
 # Set up FastAPI
 app = FastAPI(title="Kalaa-Setu Audio Service")
 
+# 🛡️ Handle license acceptance for TTS models
+def setup_license_acceptance():
+    """Set up automatic license acceptance for TTS models"""
+    # Create the cache directory if it doesn't exist
+    cache_dir = os.path.expanduser("~/.cache/tts")
+    os.makedirs(cache_dir, exist_ok=True)
+    
+    # Create a tos.txt file with license acceptance
+    tos_file = os.path.join(cache_dir, "tos.txt")
+    if not os.path.exists(tos_file):
+        with open(tos_file, "w") as f:
+            f.write("I agree to the terms of the non-commercial CPML: https://coqui.ai/cpml\n")
+
 # 🧠 Model setup
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
-model = Xtts.init_from_config(XttsConfig())
-model.load_checkpoint(config=model.config, checkpoint_dir=ModelManager().download_model(MODEL_NAME), eval=True)
-model.cuda()  # Move model to GPU
 
-# 🧾 Input schema
+# Set up license acceptance before model loading
+setup_license_acceptance()
+
+# Initialize model with error handling
+try:
+    model = Xtts.init_from_config(XttsConfig())
+    model.load_checkpoint(config=model.config, checkpoint_dir=ModelManager().download_model(MODEL_NAME), eval=True)
+    model.cuda()  # Move model to GPU
+    print("✅ TTS Model loaded successfully")
+except Exception as e:
+    print(f"❌ Error loading TTS model: {e}")
+    model = None
+
+# �� Input schema
 class AudioRequest(BaseModel):
     text: str
     tone: str = "neutral"
@@ -27,6 +51,9 @@ class AudioRequest(BaseModel):
 
 @app.post("/generate/audio")
 def generate_audio(req: AudioRequest):
+    if model is None:
+        raise HTTPException(status_code=500, detail="TTS model not loaded")
+    
     try:
         # 🧠 Inference
         outputs = model.synthesize(
