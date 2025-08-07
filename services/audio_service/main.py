@@ -5,14 +5,10 @@ import tempfile
 from TTS.utils.manage import ModelManager
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts
-from torch.serialization import safe_globals
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse
-
-# 🛡️ Allow deserialization of XttsConfig safely
-safe_globals().update({"TTS.tts.configs.xtts_config.XttsConfig": XttsConfig})
 
 # Set up FastAPI
 app = FastAPI(title="Kalaa-Setu Audio Service")
