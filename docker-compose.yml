@@ -83,3 +83,7 @@ services:
 
 volumes:
   huggingface_cache:
+
+networks:
+  kalaasetu-net:
+    driver: bridge
