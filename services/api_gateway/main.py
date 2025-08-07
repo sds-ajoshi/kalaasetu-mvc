@@ -131,12 +131,14 @@ async def generate_from_pib(url: str = Query(..., description="PIB press release
         raise HTTPException(status_code=400, detail=f"Failed to fetch PIB page: {str(e)}")
 
     soup = BeautifulSoup(response.content, "html.parser")
-    content_div = soup.find("div", {"id": "content"}) or soup.find("div", class_="content-area")
 
-    if not content_div:
+    # ✅ New logic to locate PIB content block
+    content_span = soup.find("span", {"id": "ContentPlaceHolder1_lblContents"})
+
+    if not content_span:
         raise HTTPException(status_code=400, detail="Could not locate PIB content block.")
 
-    text = content_div.get_text(separator="\n", strip=True)
+    text = content_span.get_text(separator="\n", strip=True)
     title = soup.title.string.strip() if soup.title else "PIB Release"
 
     full_text = f"{title}\n\n{text}"
