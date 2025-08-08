@@ -11,10 +11,10 @@ from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 app = FastAPI(title="Kalaa-Setu API Gateway")
 
 # Microservice URLs
-GRAPHICS_SERVICE_URL = os.getenv("GRAPHICS_SERVICE_URL", "http://localhost:8001/generate/graphics")
-AUDIO_SERVICE_URL = os.getenv("AUDIO_SERVICE_URL", "http://localhost:8002/generate/audio")
-VIDEO_SERVICE_URL = os.getenv("VIDEO_SERVICE_URL", "http://localhost:8003/create_video")
-TRANSLATION_SERVICE_URL = os.getenv("TRANSLATION_SERVICE_URL", "http://localhost:8004/translate")
+GRAPHICS_SERVICE_URL = os.getenv("GRAPHICS_SERVICE_URL", "http://graphics-service:8001/generate/graphics")
+AUDIO_SERVICE_URL = os.getenv("AUDIO_SERVICE_URL", "http://audio-service:8002/generate/audio")
+VIDEO_SERVICE_URL = os.getenv("VIDEO_SERVICE_URL", "http://video-service:8003/create_video")
+TRANSLATION_SERVICE_URL = os.getenv("TRANSLATION_SERVICE_URL", "http://translation-service:8004/translate")
 
 
 @app.get("/")
