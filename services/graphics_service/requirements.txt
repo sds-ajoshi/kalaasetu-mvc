@@ -2,4 +2,7 @@ torch
 diffusers
 transformers
 accelerate
+open-clip-torch
+psutil
+Pillow
 

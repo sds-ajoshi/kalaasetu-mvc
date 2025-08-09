@@ -3,4 +3,6 @@ transformers
 TTS
 soundfile
 numpy
+gTTS
+pydub
 

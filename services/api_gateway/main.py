@@ -169,6 +169,7 @@ async def generate_multiscene(request_data: dict):
             "audio": audio_data.get("audio"),
             "subtitles": subtitles,
             "format": "mp4",
+            "audio_format": audio_data.get("audio_format", "wav"),
             "bgm": bgm,
             "bgm_volume_db": bgm_volume_db,
         }
@@ -178,6 +179,7 @@ async def generate_multiscene(request_data: dict):
             "audio": audio_data.get("audio"),
             "subtitles": subtitles,
             "format": "mp4",
+            "audio_format": audio_data.get("audio_format", "wav"),
             "bgm": bgm,
             "bgm_volume_db": bgm_volume_db,
         }
@@ -194,16 +196,28 @@ async def generate_multiscene(request_data: dict):
     video_ms = int((t_end - t_graphics) * 1000)
     total_ms = int((t_end - t0) * 1000)
 
+    headers = {
+        "X-Latency-Assets-ms": str(assets_ms),
+        "X-Latency-Video-ms": str(video_ms),
+        "X-Latency-Total-ms": str(total_ms),
+        "X-Latency-Audio-ms": str(int((t_audio - t0) * 1000)),
+        "X-Latency-Graphics-ms": str(int((t_graphics - t_audio) * 1000)),
+    }
+    # Pass through video headers like FPS/Frames
+    try:
+        vf = video_response.headers.get("X-Video-FPS")
+        vc = video_response.headers.get("X-Video-Frames")
+        if vf:
+            headers["X-Video-FPS"] = vf
+        if vc:
+            headers["X-Video-Frames"] = vc
+    except Exception:
+        pass
+
     return Response(
         content=video_response.content,
         media_type="video/mp4",
-        headers={
-            "X-Latency-Assets-ms": str(assets_ms),
-            "X-Latency-Video-ms": str(video_ms),
-            "X-Latency-Total-ms": str(total_ms),
-            "X-Latency-Audio-ms": str(int((t_audio - t0) * 1000)),
-            "X-Latency-Graphics-ms": str(int((t_graphics - t_audio) * 1000)),
-        },
+        headers=headers,
     )
 
 
@@ -308,6 +322,7 @@ async def generate_content(request_data: dict):
         "image": image_data.get("image"),
         "subtitles": subtitles,
         "format": "mp4",
+        "audio_format": audio_data.get("audio_format", "wav"),
         "bgm": bgm,
         "bgm_volume_db": bgm_volume_db,
     }

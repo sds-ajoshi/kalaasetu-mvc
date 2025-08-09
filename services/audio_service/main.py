@@ -6,6 +6,8 @@ import sys
 import numpy as np
 import soundfile as sf
 import time
+from gtts import gTTS
+from pydub import AudioSegment
 from TTS.utils.manage import ModelManager
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts, XttsAudioConfig
@@ -100,10 +102,108 @@ def _generate_with_tts_api(text: str, xtts_lang: str):
     return audio_b64, duration_sec
 
 
+def _lang_to_gtts(lang_code: str) -> str | None:
+    # Map IndicTrans-like codes to gTTS short codes
+    mapping = {
+        "eng_Latn": "en",
+        "hin_Deva": "hi",
+        "tam_Taml": "ta",
+        "tel_Telu": "te",
+        "ben_Beng": "bn",
+        "mar_Deva": "mr",
+        "guj_Gujr": "gu",
+        "kan_Knda": "kn",
+        "mal_Mlym": "ml",
+        "pan_Guru": "pa",
+        "urd_Arab": "ur",
+        "ory_Orya": "or",
+        "asm_Beng": "as",
+    }
+    return mapping.get(lang_code)
+
+
+def _generate_with_gtts(text: str, tgt_lang_short: str):
+    # Sentence-synthesize with gTTS and join via pydub; produce simple subtitles
+    sentences = []
+    try:
+        import re
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?\n])\s+", text) if s.strip()]
+    except Exception:
+        sentences = [text]
+    if not sentences:
+        sentences = [text]
+
+    combined = AudioSegment.empty()
+    segments_durations = []
+    for s in sentences:
+        fp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        fp.close()
+        tts = gTTS(text=s, lang=tgt_lang_short)
+        tts.save(fp.name)
+        seg = AudioSegment.from_file(fp.name, format="mp3")
+        combined += seg
+        segments_durations.append(len(seg) / 1000.0)
+        try:
+            os.remove(fp.name)
+        except Exception:
+            pass
+
+    out_fp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+    out_fp.close()
+    combined.export(out_fp.name, format="mp3")
+    with open(out_fp.name, "rb") as f:
+        audio_b64 = base64.b64encode(f.read()).decode("utf-8")
+    try:
+        os.remove(out_fp.name)
+    except Exception:
+        pass
+
+    # Build subtitles by cumulative durations
+    subtitles = []
+    cursor = 0.0
+    for s, dur in zip(sentences, segments_durations):
+        start = cursor
+        end = cursor + dur
+        subtitles.append({"text": s, "start": float(start), "end": float(end)})
+        cursor = end
+    duration_sec = cursor
+    return audio_b64, duration_sec, subtitles
+
+
 @app.post("/generate/audio")
 def generate_audio(req: AudioRequest):
     try:
         t0 = time.perf_counter()
+        # Prefer gTTS for supported languages (fast, robust), else use XTTS
+        gtts_lang = _lang_to_gtts(req.language)
+        if gtts_lang:
+            audio_data, duration_sec, subtitles = _generate_with_gtts(req.text, gtts_lang)
+            def seconds_to_srt_timestamp(seconds: float) -> str:
+                if seconds < 0:
+                    seconds = 0.0
+                hours = int(seconds // 3600)
+                minutes = int((seconds % 3600) // 60)
+                secs = int(seconds % 60)
+                millis = int(round((seconds - int(seconds)) * 1000))
+                return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+            srt_lines = []
+            for i, it in enumerate(subtitles, start=1):
+                srt_lines.append(str(i))
+                srt_lines.append(f"{seconds_to_srt_timestamp(it['start'])} --> {seconds_to_srt_timestamp(it['end'])}")
+                srt_lines.append(it['text'])
+                srt_lines.append("")
+            srt_content = "\n".join(srt_lines).strip() + "\n"
+            t1 = time.perf_counter()
+            last_metrics["last_inference_ms"] = int((t1 - t0) * 1000)
+            last_metrics["device"] = "cpu"  # gTTS path is CPU-based
+            return JSONResponse(content={
+                "audio": audio_data,
+                "subtitles": subtitles,
+                "subtitles_srt": srt_content,
+                "duration_sec": duration_sec,
+                "audio_format": "mp3",
+            })
+
         # Map IndicTrans-like tags to XTTS language codes where needed
         lang_map = {
             "eng_Latn": "en",
@@ -215,6 +315,7 @@ def generate_audio(req: AudioRequest):
                 "subtitles": subtitles,
                 "subtitles_srt": srt_content,
                 "duration_sec": duration_sec,
+                "audio_format": "wav",
             })
 
         # Save to temp file robustly depending on output type

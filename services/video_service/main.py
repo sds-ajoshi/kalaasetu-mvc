@@ -6,6 +6,8 @@ from typing import List, Optional, Union
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
+import psutil
+import subprocess
 from pydantic import BaseModel
 
 app = FastAPI(title="Video Composition Service")
@@ -24,7 +26,8 @@ class ComposeRequest(BaseModel):
     # For multi-scene
     images: Optional[List[str]] = None  # list of base64 PNGs
     scene_durations: Optional[List[float]] = None  # seconds per scene, length must match images
-    audio: str  # base64 WAV
+    audio: str  # base64 audio (WAV/MP3)
+    audio_format: Optional[str] = None  # "wav" | "mp3"
     subtitles: Optional[Union[List[SubtitleItem], str]] = None  # list or SRT string
     format: str = "mp4"
     bgm: Optional[str] = None  # base64 WAV/MP3 for background music
@@ -57,7 +60,10 @@ def subtitle_list_to_srt(items: List[SubtitleItem]) -> str:
 async def create_video(request: ComposeRequest):
     request_id = str(uuid.uuid4())
     temp_dir = "/tmp"
-    audio_path = os.path.join(temp_dir, f"{request_id}.wav")
+    audio_ext = (request.audio_format or "wav").lower()
+    if audio_ext not in ("wav", "mp3"):
+        audio_ext = "wav"
+    audio_path = os.path.join(temp_dir, f"{request_id}.{audio_ext}")
     subtitle_path = os.path.join(temp_dir, f"{request_id}.srt")
     output_path = os.path.join(temp_dir, f"{request_id}.mp4")
     single_image_path = os.path.join(temp_dir, f"{request_id}.png")
@@ -159,6 +165,7 @@ async def create_video(request: ComposeRequest):
                     "libx264",
                     "-tune",
                     "stillimage",
+                    "-r", "25",
                     "-c:a",
                     "aac",
                     "-b:a",
@@ -168,7 +175,7 @@ async def create_video(request: ComposeRequest):
                     "-shortest",
                     output_path,
                 ]
-            subprocess.run(ffmpeg_command, check=True)
+                subprocess.run(ffmpeg_command, check=True)
         else:
             # Multi-scene: require scene durations
             durations = request.scene_durations or []
@@ -214,6 +221,7 @@ async def create_video(request: ComposeRequest):
                 "libx264",
                 "-pix_fmt",
                 "yuv420p",
+                "-r", "25",
                 "-c:a",
                 "aac",
                 "-b:a",
@@ -229,7 +237,32 @@ async def create_video(request: ComposeRequest):
             data = f_out.read()
         t1 = time.perf_counter()
         last_metrics["last_compose_ms"] = int((t1 - t0) * 1000)
-        return Response(content=data, media_type="video/mp4")
+        # Probe FPS and frame count
+        fps = None
+        frames = None
+        try:
+            probe = subprocess.check_output([
+                'ffprobe', '-v', 'error', '-select_streams', 'v:0', '-count_frames',
+                '-show_entries', 'stream=avg_frame_rate,nb_read_frames', '-of', 'default=noprint_wrappers=1:nokey=1', output_path
+            ]).decode().strip().splitlines()
+            if len(probe) >= 2:
+                rate = probe[0]
+                if '/' in rate:
+                    num, den = rate.split('/')
+                    fps = float(num) / float(den) if float(den) != 0 else None
+                else:
+                    fps = float(rate)
+                frames = int(probe[1])
+        except Exception:
+            pass
+
+        headers = {}
+        if fps is not None:
+            headers["X-Video-FPS"] = str(fps)
+        if frames is not None:
+            headers["X-Video-Frames"] = str(frames)
+
+        return Response(content=data, media_type="video/mp4", headers=headers)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create video: {e}")
@@ -252,7 +285,11 @@ async def health():
 
 @app.get("/metrics")
 async def metrics():
+    cpu = psutil.cpu_percent(interval=0.0)
+    mem = psutil.virtual_memory().percent
     return {
         "service": "video_service",
         **last_metrics,
+        "cpu_percent": cpu,
+        "ram_percent": mem,
     }
