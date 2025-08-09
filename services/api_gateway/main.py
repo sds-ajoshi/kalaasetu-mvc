@@ -216,12 +216,24 @@ async def generate_audio_only(request_data: dict):
     if not text:
         raise HTTPException(status_code=400, detail="Text input is required.")
 
-    async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
-        response = await client.post(AUDIO_SERVICE_URL, json={
-            "text": text,
-            "tone": tone,
-            "language": lang
-        })
+    # Simple retry to tolerate model warmup / container cold start
+    last_exc_text = None
+    for attempt in range(5):
+        try:
+            async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
+                response = await client.post(AUDIO_SERVICE_URL, json={
+                    "text": text,
+                    "tone": tone,
+                    "language": lang
+                })
+            if response.status_code == 200:
+                break
+            last_exc_text = response.text
+        except Exception as e:  # include connect errors
+            last_exc_text = str(e)
+        await asyncio.sleep(2 * (attempt + 1))
+    else:
+        raise HTTPException(status_code=503, detail=f"Audio service unavailable: {last_exc_text}")
 
     if response.status_code != 200:
         detail = None

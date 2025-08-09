@@ -10,6 +10,11 @@ from TTS.utils.manage import ModelManager
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts, XttsAudioConfig
 try:
+    # High-level API fallback
+    from TTS.api import TTS as CoquiTTS
+except Exception:  # pragma: no cover
+    CoquiTTS = None  # type: ignore
+try:
     # Some versions expose XttsArgs used during checkpoint load
     from TTS.tts.models.xtts import XttsArgs  # type: ignore
 except Exception:  # pragma: no cover
@@ -55,7 +60,8 @@ try:
     print("✅ TTS Model loaded successfully")
 except Exception as e:
     print(f"❌ Error loading TTS model: {e}")
-    model = None
+model = None
+tts_api_model = None  # high-level API fallback instance
 
 #  Input schema
 class AudioRequest(BaseModel):
@@ -89,12 +95,92 @@ def generate_audio(req: AudioRequest):
         xtts_lang = lang_map.get(req.language, req.language)
 
         # 🧠 Inference
-        outputs = model.synthesize(
-            text=req.text,
-            speaker_wav=None,
-            language=xtts_lang,
-            split_sentences=True,
-        )
+        try:
+            outputs = model.synthesize(
+                text=req.text,
+                speaker_wav=None,
+                language=xtts_lang,
+                split_sentences=True,
+            )
+        except Exception as synth_err:
+            # Fallback to high-level API if available
+            if CoquiTTS is None:
+                raise
+            global tts_api_model
+            if tts_api_model is None:
+                tts_api_model = CoquiTTS(MODEL_NAME)
+                if torch.cuda.is_available():
+                    try:
+                        tts_api_model = tts_api_model.to('cuda')
+                    except Exception:
+                        pass
+            # Generate waveform directly (numpy array)
+            wav_np = tts_api_model.tts(text=req.text, language=xtts_lang)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                # Assume 24000 Hz default if API does not return SR
+                sample_rate = 24000
+                try:
+                    sample_rate = getattr(getattr(model, "config", None), "audio", None).sample_rate or 24000
+                except Exception:
+                    pass
+                sf.write(tmp.name, np.asarray(wav_np).squeeze(), sample_rate)
+                tmp.seek(0)
+                try:
+                    info = sf.info(tmp.name)
+                    duration_sec = float(info.duration)
+                except Exception:
+                    duration_sec = 5.0
+                wav_bytes = tmp.read()
+                audio_data = base64.b64encode(wav_bytes).decode("utf-8")
+            # Build subtitles and return early
+            # Build simple subtitles: split text into sentences and spread over duration
+            def split_sentences(text: str):
+                import re
+                parts = [s.strip() for s in re.split(r"(?<=[.!?\n])\s+", text) if s.strip()]
+                if not parts:
+                    parts = [text]
+                return parts
+            def seconds_to_srt_timestamp(seconds: float) -> str:
+                if seconds < 0:
+                    seconds = 0.0
+                hours = int(seconds // 3600)
+                minutes = int((seconds % 3600) // 60)
+                secs = int(seconds % 60)
+                millis = int(round((seconds - int(seconds)) * 1000))
+                return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+            def to_srt(items):
+                lines = []
+                for idx, it in enumerate(items, start=1):
+                    lines.append(str(idx))
+                    lines.append(f"{seconds_to_srt_timestamp(it['start'])} --> {seconds_to_srt_timestamp(it['end'])}")
+                    lines.append(it['text'])
+                    lines.append("")
+                return "\n".join(lines).strip() + "\n"
+            sentence_list = split_sentences(req.text)
+            num_segments = max(1, min(len(sentence_list), 10))
+            total_chars = sum(len(s) for s in sentence_list[:num_segments]) or 1
+            min_seg = 0.5
+            subtitles = []
+            cursor = 0.0
+            for i, sent in enumerate(sentence_list[:num_segments]):
+                share = len(sent) / total_chars
+                dur = max(min_seg, duration_sec * share)
+                start_t = cursor
+                end_t = min(duration_sec, start_t + dur)
+                if i == num_segments - 1:
+                    end_t = duration_sec
+                subtitles.append({"text": sent, "start": float(start_t), "end": float(end_t)})
+                cursor = end_t
+            srt_content = to_srt(subtitles)
+            t1 = time.perf_counter()
+            last_metrics["last_inference_ms"] = int((t1 - t0) * 1000)
+            last_metrics["device"] = "cuda" if torch.cuda.is_available() else "cpu"
+            return JSONResponse(content={
+                "audio": audio_data,
+                "subtitles": subtitles,
+                "subtitles_srt": srt_content,
+                "duration_sec": duration_sec,
+            })
 
         # Save to temp file robustly depending on output type
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
@@ -194,7 +280,8 @@ def generate_audio(req: AudioRequest):
         })
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Surface detailed error for debugging; in production, return generic
+        raise HTTPException(status_code=500, detail=f"TTS error: {e}")
 
 
 @app.get("/health")
