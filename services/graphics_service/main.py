@@ -14,13 +14,22 @@ model_pipeline = {}
 async def lifespan(app: FastAPI):
     # Load the model
     print("Loading SDXL model...")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype = torch.float16 if device == "cuda" else torch.float32
+
     pipe = DiffusionPipeline.from_pretrained(
         "stabilityai/stable-diffusion-xl-base-1.0",
-        torch_dtype=torch.float16,
+        torch_dtype=dtype,
         use_safetensors=True,
-        variant="fp16"
     )
-    pipe.to("cuda")
+
+    # Memory/perf tweaks for limited environments
+    try:
+        pipe.enable_attention_slicing()
+    except Exception:
+        pass
+
+    pipe.to(device)
     model_pipeline["sdxl"] = pipe
     print("SDXL Model Loaded.")
 
@@ -52,7 +61,8 @@ async def generate_graphic(req: GraphicsRequest):
     )
 
     try:
-        image = model_pipeline["sdxl"](prompt=prompt).images[0]
+        # Reduce steps to keep latency reasonable on CPU
+        image = model_pipeline["sdxl"](prompt=prompt, num_inference_steps=10, guidance_scale=5.0).images[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image generation failed: {str(e)}")
 

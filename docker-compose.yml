@@ -10,8 +10,8 @@ services:
     volumes:
       - ./services:/app/services
     environment:
-      - GRAPHICS_SERVICE_URL=http://graphics_service:8001/generate/graphics
-      - AUDIO_SERVICE_URL=http://audio_service:8002/generate/audio
+      - GRAPHICS_SERVICE_URL=http://graphics-service:8001/generate/graphics
+      - AUDIO_SERVICE_URL=http://audio-service:8002/generate/audio
     command: uvicorn services.api_gateway.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       - graphics_service
