@@ -1,5 +1,6 @@
 import os
 import asyncio
+import time
 import base64
 import httpx
 import requests
@@ -27,6 +28,12 @@ GRAPHICS_SERVICE_URL = os.getenv("GRAPHICS_SERVICE_URL", "http://graphics-servic
 AUDIO_SERVICE_URL = os.getenv("AUDIO_SERVICE_URL", "http://audio-service:8002/generate/audio")
 VIDEO_SERVICE_URL = os.getenv("VIDEO_SERVICE_URL", "http://video-service:8003/create_video")
 TRANSLATION_SERVICE_URL = os.getenv("TRANSLATION_SERVICE_URL", "http://translation-service:8004/translate")
+GRAPHICS_METRICS_URL = os.getenv("GRAPHICS_METRICS_URL", "http://graphics-service:8001/metrics")
+AUDIO_METRICS_URL = os.getenv("AUDIO_METRICS_URL", "http://audio-service:8002/metrics")
+VIDEO_METRICS_URL = os.getenv("VIDEO_METRICS_URL", "http://video-service:8003/metrics")
+GRAPHICS_HEALTH_URL = os.getenv("GRAPHICS_HEALTH_URL", "http://graphics-service:8001/health")
+AUDIO_HEALTH_URL = os.getenv("AUDIO_HEALTH_URL", "http://audio-service:8002/health")
+VIDEO_HEALTH_URL = os.getenv("VIDEO_HEALTH_URL", "http://video-service:8003/health")
 
 # Increase client timeouts to tolerate model cold starts
 HTTPX_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
@@ -35,6 +42,169 @@ HTTPX_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 @app.get("/")
 def read_root():
     return {"message": "Kalaa-Setu API Gateway is running."}
+
+
+@app.get("/health")
+def health():
+    return {"service": "api_gateway"}
+
+
+@app.get("/metrics")
+async def metrics():
+    # Optionally, could proxy sub-metrics in the future
+    return {"service": "api_gateway"}
+
+
+@app.get("/metrics/stack")
+async def metrics_stack():
+    async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
+        tasks = [
+            client.get(GRAPHICS_METRICS_URL),
+            client.get(AUDIO_METRICS_URL),
+            client.get(VIDEO_METRICS_URL),
+            client.get(GRAPHICS_HEALTH_URL),
+            client.get(AUDIO_HEALTH_URL),
+            client.get(VIDEO_HEALTH_URL),
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    def safe_json(resp):
+        if isinstance(resp, Exception):
+            return {"error": str(resp)}
+        try:
+            if resp.status_code == 200:
+                return resp.json()
+            return {"status": resp.status_code, "text": resp.text}
+        except Exception as e:  # pragma: no cover
+            return {"error": str(e)}
+
+    metrics = {
+        "graphics_metrics": safe_json(results[0]),
+        "audio_metrics": safe_json(results[1]),
+        "video_metrics": safe_json(results[2]),
+        "graphics_health": safe_json(results[3]),
+        "audio_health": safe_json(results[4]),
+        "video_health": safe_json(results[5]),
+    }
+    return metrics
+
+
+@app.post("/generate/video_multiscene")
+async def generate_multiscene(request_data: dict):
+    t0 = time.perf_counter()
+    text = request_data.get("text")
+    tone = request_data.get("tone", "neutral")
+    domain = request_data.get("domain", "general")
+    environment = request_data.get("environment", "neutral")
+    src_lang = request_data.get("language", "eng_Latn")
+    max_scenes = int(request_data.get("max_scenes", 6))
+    bgm = request_data.get("bgm")
+    bgm_volume_db = float(request_data.get("bgm_volume_db", -20.0))
+
+    if not text:
+        raise HTTPException(status_code=400, detail="Text input is required.")
+
+    # Split text into paragraphs/sentences for scenes
+    import re
+    raw_parts = [p.strip() for p in re.split(r"\n\n+|(?<=[.!?])\s+\n?", text) if p.strip()]
+    parts = raw_parts[:max_scenes] if raw_parts else [text]
+
+    # Translate to English for graphics prompts if needed
+    english_parts = parts
+    if src_lang != "eng_Latn":
+        english_parts = []
+        async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
+            for p in parts:
+                resp = await client.post(TRANSLATION_SERVICE_URL, json={
+                    "text": p,
+                    "src_lang": src_lang,
+                    "tgt_lang": "eng_Latn"
+                })
+                if resp.status_code != 200:
+                    raise HTTPException(status_code=500, detail="Translation failed for a scene.")
+                english_parts.append(resp.json().get("translated_text"))
+
+    # Generate audio for full text in original language
+    async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
+        audio_response = await client.post(AUDIO_SERVICE_URL, json={
+            "text": text,
+            "tone": tone,
+            "language": src_lang
+        })
+        if audio_response.status_code != 200:
+            raise HTTPException(status_code=500, detail=f"Audio error: {audio_response.text}")
+        audio_data = audio_response.json()
+    t_audio = time.perf_counter()
+
+    # Generate one image per scene in parallel
+    async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
+        tasks = []
+        for p in english_parts:
+            tasks.append(client.post(GRAPHICS_SERVICE_URL, json={
+                "text": p,
+                "tone": tone,
+                "domain": domain,
+                "environment": environment
+            }))
+        results = await asyncio.gather(*tasks)
+    t_graphics = time.perf_counter()
+
+    images = []
+    for r in results:
+        if r.status_code != 200:
+            raise HTTPException(status_code=500, detail=f"Graphics error: {r.text}")
+        images.append(r.json().get("image"))
+
+    # Compose as multi-scene if we have more than one image
+    subtitles = audio_data.get("subtitles_srt") or audio_data.get("subtitles")
+    if len(images) > 1:
+        # Approximate per-scene durations by splitting audio duration equally
+        duration_sec = float(audio_data.get("duration_sec") or 6.0)
+        num = len(images)
+        per = max(0.5, duration_sec / float(num))
+        scene_durations = [per] * num
+        video_payload = {
+            "images": images,
+            "scene_durations": scene_durations,
+            "audio": audio_data.get("audio"),
+            "subtitles": subtitles,
+            "format": "mp4",
+            "bgm": bgm,
+            "bgm_volume_db": bgm_volume_db,
+        }
+    else:
+        video_payload = {
+            "image": images[0] if images else None,
+            "audio": audio_data.get("audio"),
+            "subtitles": subtitles,
+            "format": "mp4",
+            "bgm": bgm,
+            "bgm_volume_db": bgm_volume_db,
+        }
+        if video_payload["image"] is None:
+            raise HTTPException(status_code=500, detail="No image generated")
+
+    async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
+        video_response = await client.post(VIDEO_SERVICE_URL, json=video_payload)
+    if video_response.status_code != 200:
+        raise HTTPException(status_code=500, detail="Failed to create video.")
+
+    t_end = time.perf_counter()
+    assets_ms = int((t_graphics - t0) * 1000)  # includes audio+graphics overall
+    video_ms = int((t_end - t_graphics) * 1000)
+    total_ms = int((t_end - t0) * 1000)
+
+    return Response(
+        content=video_response.content,
+        media_type="video/mp4",
+        headers={
+            "X-Latency-Assets-ms": str(assets_ms),
+            "X-Latency-Video-ms": str(video_ms),
+            "X-Latency-Total-ms": str(total_ms),
+            "X-Latency-Audio-ms": str(int((t_audio - t0) * 1000)),
+            "X-Latency-Graphics-ms": str(int((t_graphics - t_audio) * 1000)),
+        },
+    )
 
 
 @app.post("/generate/audio_only")
@@ -71,6 +241,8 @@ async def generate_content(request_data: dict):
     domain = request_data.get("domain", "general")
     environment = request_data.get("environment", "neutral")
     src_lang = request_data.get("language", "eng_Latn")  # Language code: default to English
+    bgm = request_data.get("bgm")
+    bgm_volume_db = float(request_data.get("bgm_volume_db", -20.0))
 
     if not text:
         raise HTTPException(status_code=400, detail="Text input is required.")
@@ -90,6 +262,8 @@ async def generate_content(request_data: dict):
                 raise HTTPException(status_code=500, detail="Translation failed.")
             english_text = resp.json().get("translated_text")
 
+    t0 = time.perf_counter()
+
     async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
         audio_task = client.post(AUDIO_SERVICE_URL, json={
             "text": original_text,
@@ -105,6 +279,8 @@ async def generate_content(request_data: dict):
 
         audio_response, graphics_response = await asyncio.gather(audio_task, graphics_task)
 
+        t_after_assets = time.perf_counter()
+
         if audio_response.status_code != 200 or graphics_response.status_code != 200:
             audio_err = audio_response.text if audio_response.status_code != 200 else None
             graphics_err = graphics_response.text if graphics_response.status_code != 200 else None
@@ -113,11 +289,15 @@ async def generate_content(request_data: dict):
         audio_data = audio_response.json()
         image_data = graphics_response.json()
 
+    # Prefer SRT if provided by audio service
+    subtitles = audio_data.get("subtitles_srt") or audio_data.get("subtitles")
     video_payload = {
         "audio": audio_data.get("audio"),
         "image": image_data.get("image"),
-        "subtitles": audio_data.get("subtitles"),
-        "format": "mp4"
+        "subtitles": subtitles,
+        "format": "mp4",
+        "bgm": bgm,
+        "bgm_volume_db": bgm_volume_db,
     }
 
     async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
@@ -126,7 +306,23 @@ async def generate_content(request_data: dict):
     if video_response.status_code != 200:
         raise HTTPException(status_code=500, detail="Failed to create video.")
 
-    return Response(content=video_response.content, media_type="video/mp4")
+    t_end = time.perf_counter()
+
+    # Metrics
+    audio_ms = int((t_after_assets - t0) * 1000)  # combined since gathered
+    graphics_ms = audio_ms  # same window; we cannot split without more granular timing
+    video_ms = int((t_end - t_after_assets) * 1000)
+    total_ms = int((t_end - t0) * 1000)
+
+    return Response(
+        content=video_response.content,
+        media_type="video/mp4",
+        headers={
+            "X-Latency-Assets-ms": str(audio_ms),
+            "X-Latency-Video-ms": str(video_ms),
+            "X-Latency-Total-ms": str(total_ms),
+        },
+    )
 
 
 @app.post("/create/final_video")

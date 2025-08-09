@@ -81,6 +81,28 @@
             </div>
           </div>
 
+          <div class="grid grid-cols-2 gap-3">
+            <div class="flex items-center gap-2">
+              <input id="txt_multiscene" type="checkbox" class="w-4 h-4">
+              <label for="txt_multiscene" class="text-sm">Multi-scene</label>
+            </div>
+            <div>
+              <label class="block text-sm mb-1">Max scenes</label>
+              <input id="txt_maxscenes" type="number" min="2" max="10" value="6" class="w-full px-3 py-2 rounded-lg border" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm mb-1">Background music (optional)</label>
+              <input id="txt_bgm" type="file" accept="audio/*" class="w-full" />
+            </div>
+            <div>
+              <label class="block text-sm mb-1">BGM volume (dB)</label>
+              <input id="txt_bgm_vol" type="number" step="1" min="-50" max="0" value="-20" class="w-full px-3 py-2 rounded-lg border" />
+            </div>
+          </div>
+
           <button id="btn_text2video" class="mt-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700">
             Generate Video
           </button>
@@ -103,6 +125,31 @@
       </div>
     </section>
 
+    <!-- Metrics -->
+    <section class="bg-white rounded-2xl shadow-sm border p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">Live Metrics</h2>
+        <span class="text-xs rounded-full bg-slate-100 px-2 py-1">GET /metrics/stack</span>
+      </div>
+      <div class="grid gap-3 md:grid-cols-2">
+        <div class="rounded-xl border bg-slate-50 p-3">
+          <p class="text-sm font-medium mb-2">Stack Metrics</p>
+          <pre id="log_metrics" class="text-xs whitespace-pre-wrap font-mono text-slate-700"></pre>
+          <div class="flex gap-2 mt-2">
+            <button id="btn_metrics_once" class="px-3 py-2 rounded-lg bg-slate-800 text-white text-sm">Refresh Once</button>
+            <button id="btn_metrics_auto" class="px-3 py-2 rounded-lg bg-slate-700 text-white text-sm">Auto Refresh</button>
+            <button id="btn_metrics_stop" class="px-3 py-2 rounded-lg bg-slate-600 text-white text-sm">Stop</button>
+          </div>
+        </div>
+        <div class="rounded-xl border bg-slate-50 p-3">
+          <p class="text-sm font-medium mb-2">Tips</p>
+          <ul class="list-disc pl-6 text-xs text-slate-700">
+            <li>Run on GPU for `audio_service` and `graphics_service` to meet latency targets</li>
+            <li>Metrics show last inference/compose times per service</li>
+          </ul>
+        </div>
+      </div>
+    </section>
     <!-- Audio only -->
     <section class="bg-white rounded-2xl shadow-sm border p-5">
       <div class="flex items-center justify-between mb-3">
@@ -243,6 +290,30 @@
       return res.arrayBuffer();
     }
 
+    // ---------- Metrics ----------
+    let metricsTimer = null;
+    async function refreshMetricsOnce() {
+      const log = $('log_metrics');
+      try {
+        const res = await fetch(`${apiBase()}/metrics/stack`);
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        const data = await res.json();
+        log.textContent = JSON.stringify(data, null, 2);
+      } catch (e) {
+        log.textContent = 'Error: ' + e.message;
+      }
+    }
+    $('btn_metrics_once').onclick = refreshMetricsOnce;
+    $('btn_metrics_auto').onclick = () => {
+      if (metricsTimer) return;
+      metricsTimer = setInterval(refreshMetricsOnce, 2000);
+      refreshMetricsOnce();
+    };
+    $('btn_metrics_stop').onclick = () => {
+      if (metricsTimer) clearInterval(metricsTimer);
+      metricsTimer = null;
+    };
+
     // ---------- Text ➜ Video ----------
     $('btn_text2video').onclick = async () => {
       const log = $('log_text');
@@ -259,16 +330,33 @@
       try {
         setBusy(btn, true);
         log.textContent = 'Submitting...';
-        const endpointUrl = `${apiBase()}/generate/video_from_text`;
+        const multi = $('txt_multiscene').checked;
+        const maxScenes = parseInt($('txt_maxscenes').value || '6', 10);
+        const endpointUrl = `${apiBase()}${multi ? '/generate/video_multiscene' : '/generate/video_from_text'}`;
+        const body = multi ? { text, tone, domain, environment, language, max_scenes: maxScenes } : { text, tone, domain, environment, language };
+
+        // Optional BGM file -> base64
+        const bgmFile = $('txt_bgm').files && $('txt_bgm').files[0];
+        if (bgmFile) {
+          const arrayBuf = await bgmFile.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuf);
+          let binary = '';
+          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+          body.bgm = btoa(binary);
+          body.bgm_volume_db = parseFloat($('txt_bgm_vol').value || '-20');
+        }
         const res = await fetch(endpointUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, tone, domain, environment, language })
+          body: JSON.stringify(body)
         });
         if (!res.ok) {
           const textErr = await res.text().catch(()=> '');
           throw new Error(`${res.status} ${res.statusText} — ${textErr || 'request failed'}`);
         }
+        const latencyAssets = res.headers.get('X-Latency-Assets-ms');
+        const latencyVideo = res.headers.get('X-Latency-Video-ms');
+        const latencyTotal = res.headers.get('X-Latency-Total-ms');
         const buf = await res.arrayBuffer();
         const blob = new Blob([buf], { type: 'video/mp4' });
         const blobUrl = URL.createObjectURL(blob);
@@ -277,7 +365,11 @@
         $('video_download').download = 'kalaa_video.mp4';
         $('video_download').classList.remove('hidden');
         $('video_size').textContent = humanBytes(blob.size);
-        log.textContent = 'Done.';
+        const parts = [];
+        if (latencyAssets) parts.push(`assets: ${latencyAssets} ms`);
+        if (latencyVideo) parts.push(`compose: ${latencyVideo} ms`);
+        if (latencyTotal) parts.push(`total: ${latencyTotal} ms`);
+        log.textContent = parts.length ? `Done. Latency — ${parts.join(', ')}` : 'Done.';
       } catch (e) {
         log.textContent = 'Error: ' + e.message;
       } finally {
@@ -336,7 +428,16 @@
         setBusy(btn, true);
         log.textContent = 'Fetching & generating...';
         const q = new URLSearchParams({ url: srcUrl }).toString();
-        const buf = await getBinary('/generate_from_pib?' + q);
+        const endpointUrl = `${apiBase()}/generate_from_pib?${q}`;
+        const res = await fetch(endpointUrl);
+        if (!res.ok) {
+          const textErr = await res.text().catch(()=> '');
+          throw new Error(`${res.status} ${res.statusText} — ${textErr || 'request failed'}`);
+        }
+        const latencyAssets = res.headers.get('X-Latency-Assets-ms');
+        const latencyVideo = res.headers.get('X-Latency-Video-ms');
+        const latencyTotal = res.headers.get('X-Latency-Total-ms');
+        const buf = await res.arrayBuffer();
         const blob = new Blob([buf], { type: 'video/mp4' });
         const blobUrl = URL.createObjectURL(blob);
         $('pib_preview').src = blobUrl;
@@ -344,7 +445,11 @@
         $('pib_download').download = 'kalaa_pib_video.mp4';
         $('pib_download').classList.remove('hidden');
         $('pib_size').textContent = humanBytes(blob.size);
-        log.textContent = 'Done.';
+        const parts = [];
+        if (latencyAssets) parts.push(`assets: ${latencyAssets} ms`);
+        if (latencyVideo) parts.push(`compose: ${latencyVideo} ms`);
+        if (latencyTotal) parts.push(`total: ${latencyTotal} ms`);
+        log.textContent = parts.length ? `Done. Latency — ${parts.join(', ')}` : 'Done.';
       } catch (e) {
         log.textContent = 'Error: ' + e.message;
       } finally {

@@ -5,6 +5,7 @@ import tempfile
 import sys
 import numpy as np
 import soundfile as sf
+import time
 from TTS.utils.manage import ModelManager
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts, XttsAudioConfig
@@ -30,6 +31,7 @@ os.environ.setdefault("COQUI_TOS_AGREED", "1")
 
 # FastAPI app
 app = FastAPI(title="Kalaa-Setu Audio Service")
+last_metrics = {"last_inference_ms": None, "device": None}
 
 # Model setup
 MODEL_NAME = "tts_models/multilingual/multi-dataset/xtts_v2"
@@ -67,11 +69,30 @@ def generate_audio(req: AudioRequest):
         raise HTTPException(status_code=500, detail="TTS model not loaded")
     
     try:
+        t0 = time.perf_counter()
+        # Map IndicTrans-like tags to XTTS language codes where needed
+        lang_map = {
+            "eng_Latn": "en",
+            "hin_Deva": "hi",
+            "tam_Taml": "ta",
+            "tel_Telu": "te",
+            "ben_Beng": "bn",
+            "mar_Deva": "mr",
+            "guj_Gujr": "gu",
+            "kan_Knda": "kn",
+            "mal_Mlym": "ml",
+            "pan_Guru": "pa",
+            "urd_Arab": "ur",
+            "ory_Orya": "or",
+            "asm_Beng": "as",
+        }
+        xtts_lang = lang_map.get(req.language, req.language)
+
         # 🧠 Inference
         outputs = model.synthesize(
             text=req.text,
             speaker_wav=None,
-            language=req.language,
+            language=xtts_lang,
             split_sentences=True,
         )
 
@@ -105,14 +126,90 @@ def generate_audio(req: AudioRequest):
                 sample_rate = getattr(sr, "sample_rate", 24000) if sr else 24000
                 sf.write(tmp.name, wav, sample_rate)
 
+            # Calculate duration and read bytes
+            try:
+                info = sf.info(tmp.name)
+                duration_sec = float(info.duration)
+            except Exception:
+                duration_sec = 5.0
             tmp.seek(0)
-            audio_data = base64.b64encode(tmp.read()).decode("utf-8")
+            wav_bytes = tmp.read()
+            audio_data = base64.b64encode(wav_bytes).decode("utf-8")
 
-        # 🧾 Return base64 audio and subtitles (stub for now)
+        # Build simple subtitles: split text into sentences and spread over duration
+        def split_sentences(text: str):
+            import re
+            parts = [s.strip() for s in re.split(r"(?<=[.!?\n])\s+", text) if s.strip()]
+            if not parts:
+                parts = [text]
+            return parts
+
+        def seconds_to_srt_timestamp(seconds: float) -> str:
+            if seconds < 0:
+                seconds = 0.0
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            secs = int(seconds % 60)
+            millis = int(round((seconds - int(seconds)) * 1000))
+            return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+        def to_srt(items):
+            lines = []
+            for idx, it in enumerate(items, start=1):
+                lines.append(str(idx))
+                lines.append(f"{seconds_to_srt_timestamp(it['start'])} --> {seconds_to_srt_timestamp(it['end'])}")
+                lines.append(it['text'])
+                lines.append("")
+            return "\n".join(lines).strip() + "\n"
+
+        sentence_list = split_sentences(req.text)
+        num_segments = max(1, min(len(sentence_list), 10))
+        # proportional duration per segment (fallback equal split)
+        total_chars = sum(len(s) for s in sentence_list[:num_segments]) or 1
+        min_seg = 0.5
+        subtitles = []
+        cursor = 0.0
+        for i, sent in enumerate(sentence_list[:num_segments]):
+            share = len(sent) / total_chars
+            dur = max(min_seg, duration_sec * share)
+            start_t = cursor
+            end_t = min(duration_sec, start_t + dur)
+            # ensure the last segment ends exactly at duration
+            if i == num_segments - 1:
+                end_t = duration_sec
+            subtitles.append({"text": sent, "start": float(start_t), "end": float(end_t)})
+            cursor = end_t
+
+        srt_content = to_srt(subtitles)
+        t1 = time.perf_counter()
+        last_metrics["last_inference_ms"] = int((t1 - t0) * 1000)
+        last_metrics["device"] = "cuda" if torch.cuda.is_available() else "cpu"
+
+        # 🧾 Return base64 audio and subtitles (proportional timing)
         return JSONResponse(content={
             "audio": audio_data,
-            "subtitles": [{"text": req.text, "start": 0.0, "end": 5.0}]
+            "subtitles": subtitles,
+            "subtitles_srt": srt_content,
+            "duration_sec": duration_sec,
         })
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/health")
+def health():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    return {
+        "service": "audio_service",
+        "model_loaded": model is not None,
+        "device": device,
+    }
+
+
+@app.get("/metrics")
+def metrics():
+    return {
+        "service": "audio_service",
+        **last_metrics,
+    }

@@ -12,11 +12,14 @@ services:
     environment:
       - GRAPHICS_SERVICE_URL=http://graphics-service:8001/generate/graphics
       - AUDIO_SERVICE_URL=http://audio-service:8002/generate/audio
+      - VIDEO_SERVICE_URL=http://video-service:8003/create_video
+      - TRANSLATION_SERVICE_URL=http://translation-service:8004/translate
     command: uvicorn services.api_gateway.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
       - graphics_service
       - audio_service
       - video_service
+      - translation_service
     networks:
       - kalaasetu-net
 
@@ -32,6 +35,7 @@ services:
     volumes:
       - ./services:/app/services
       - huggingface_cache:/root/.cache/huggingface
+      - transformers_cache:/root/.cache/torch/transformers
     command: uvicorn services.graphics_service.main:app --host 0.0.0.0 --port 8001 --reload
     deploy:
       resources:
@@ -53,9 +57,17 @@ services:
     volumes:
       - ./services:/app/services
       - huggingface_cache:/root/.cache/huggingface
+      - transformers_cache:/root/.cache/torch/transformers
     environment:
       - COQUI_TOS_AGREED=1
     command: uvicorn services.audio_service.main:app --host 0.0.0.0 --port 8002 --reload
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   video_service:
     build:
@@ -85,6 +97,7 @@ services:
 
 volumes:
   huggingface_cache:
+  transformers_cache:
 
 networks:
   kalaasetu-net:

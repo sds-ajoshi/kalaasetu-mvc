@@ -40,6 +40,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Graphics Generation Service", lifespan=lifespan)
+last_metrics = {"last_inference_ms": None, "device": None}
 
 
 class GraphicsRequest(BaseModel):
@@ -61,8 +62,13 @@ async def generate_graphic(req: GraphicsRequest):
     )
 
     try:
+        import time
+        t0 = time.perf_counter()
         # Reduce steps to keep latency reasonable on CPU
         image = model_pipeline["sdxl"](prompt=prompt, num_inference_steps=10, guidance_scale=5.0).images[0]
+        t1 = time.perf_counter()
+        last_metrics["last_inference_ms"] = int((t1 - t0) * 1000)
+        last_metrics["device"] = "cuda" if torch.cuda.is_available() else "cpu"
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image generation failed: {str(e)}")
 
@@ -74,4 +80,23 @@ async def generate_graphic(req: GraphicsRequest):
     return {
         "prompt": prompt,
         "image": image_base64
+    }
+
+
+@app.get("/health")
+async def health():
+    loaded = "sdxl" in model_pipeline
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    return {
+        "service": "graphics_service",
+        "model_loaded": loaded,
+        "device": device,
+    }
+
+
+@app.get("/metrics")
+async def metrics():
+    return {
+        "service": "graphics_service",
+        **last_metrics,
     }
