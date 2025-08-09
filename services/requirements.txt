@@ -12,3 +12,4 @@ accelerate
 TTS
 openai-whisper
 beautifulsoup4
+sentencepiece

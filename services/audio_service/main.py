@@ -3,6 +3,8 @@ import base64
 import torch
 import tempfile
 import sys
+import numpy as np
+import soundfile as sf
 from TTS.utils.manage import ModelManager
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts, XttsAudioConfig
@@ -70,12 +72,39 @@ def generate_audio(req: AudioRequest):
             text=req.text,
             speaker_wav=None,
             language=req.language,
-            split_sentences=True
+            split_sentences=True,
         )
 
-        # Save to temp file
+        # Save to temp file robustly depending on output type
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-            outputs.save_wav(tmp.name)
+            saved = False
+            # Case 1: object exposes save_wav
+            if hasattr(outputs, "save_wav"):
+                try:
+                    outputs.save_wav(tmp.name)
+                    saved = True
+                except Exception:
+                    saved = False
+
+            if not saved:
+                # Case 2: dict/tuple/ndarray
+                wav = None
+                if isinstance(outputs, dict):
+                    wav = outputs.get("wav") or outputs.get("audio") or outputs.get("samples")
+                elif isinstance(outputs, (list, tuple)) and len(outputs) > 0:
+                    wav = outputs[0]
+                elif isinstance(outputs, np.ndarray):
+                    wav = outputs
+
+                if wav is None:
+                    raise RuntimeError("Unknown synthesize output format")
+
+                # Ensure 1-D numpy array
+                wav = np.asarray(wav).squeeze()
+                sr = getattr(getattr(model, "config", None), "audio", None)
+                sample_rate = getattr(sr, "sample_rate", 24000) if sr else 24000
+                sf.write(tmp.name, wav, sample_rate)
+
             tmp.seek(0)
             audio_data = base64.b64encode(tmp.read()).decode("utf-8")
 
