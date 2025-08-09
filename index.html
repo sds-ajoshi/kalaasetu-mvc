@@ -216,18 +216,13 @@
     $('baseUrl').value = localStorage.getItem('kalaa_api_base') || defaultBase;
     $('saveBase').onclick = () => {
       localStorage.setItem('kalaa_api_base', $('baseUrl').value.trim());
-      toast('API base set.');
+      alert('API base set to: ' + $('baseUrl').value.trim());
     };
-
     const apiBase = () => (localStorage.getItem('kalaa_api_base') || $('baseUrl').value || '').replace(/\/+$/,'');
-    const toast = (msg) => {
-      console.log(msg);
-      // simple inline status bump; could be enhanced with a toast library
-    };
 
     async function postJSON(path, body, expectBinary = false) {
-      const url = `${apiBase()}${path}`;
-      const res = await fetch(url, {
+      const endpointUrl = `${apiBase()}${path}`;
+      const res = await fetch(endpointUrl, {
         method: 'POST',
         headers: expectBinary ? {} : {'Content-Type': 'application/json'},
         body: expectBinary ? body : JSON.stringify(body)
@@ -239,8 +234,8 @@
       return expectBinary ? res.arrayBuffer() : res.json();
     }
     async function getBinary(path) {
-      const url = `${apiBase()}${path}`;
-      const res = await fetch(url);
+      const endpointUrl = `${apiBase()}${path}`;
+      const res = await fetch(endpointUrl);
       if (!res.ok) {
         const text = await res.text().catch(()=> '');
         throw new Error(`${res.status} ${res.statusText} — ${text || 'request failed'}`);
@@ -264,8 +259,8 @@
       try {
         setBusy(btn, true);
         log.textContent = 'Submitting...';
-        const url = `${apiBase()}/generate/video_from_text`;
-        const res = await fetch(url, {
+        const endpointUrl = `${apiBase()}/generate/video_from_text`;
+        const res = await fetch(endpointUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text, tone, domain, environment, language })
@@ -276,9 +271,9 @@
         }
         const buf = await res.arrayBuffer();
         const blob = new Blob([buf], { type: 'video/mp4' });
-        const url = URL.createObjectURL(blob);
-        $('video_preview').src = url;
-        $('video_download').href = url;
+        const blobUrl = URL.createObjectURL(blob);
+        $('video_preview').src = blobUrl;
+        $('video_download').href = blobUrl;
         $('video_download').download = 'kalaa_video.mp4';
         $('video_download').classList.remove('hidden');
         $('video_size').textContent = humanBytes(blob.size);
@@ -306,17 +301,16 @@
         log.textContent = 'Submitting...';
         const resp = await postJSON('/generate/audio_only', { text, tone, language });
         if (!resp || !resp.audio) throw new Error('Audio payload missing.');
-        // resp.audio is base64 audio string
         const src = 'data:audio/wav;base64,' + resp.audio;
         $('audio_preview').src = src;
 
-        // Make a downloadable blob
+        // Downloadable blob
         const byteChars = atob(resp.audio);
         const bytes = new Uint8Array(byteChars.length);
         for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
         const blob = new Blob([bytes], { type: 'audio/wav' });
-        const url = URL.createObjectURL(blob);
-        $('audio_download').href = url;
+        const blobUrl = URL.createObjectURL(blob);
+        $('audio_download').href = blobUrl;
         $('audio_download').download = 'kalaa_audio.wav';
         $('audio_download').classList.remove('hidden');
         $('audio_size').textContent = humanBytes(blob.size);
@@ -341,13 +335,12 @@
       try {
         setBusy(btn, true);
         log.textContent = 'Fetching & generating...';
-        // GET /generate_from_pib?url=...
         const q = new URLSearchParams({ url: srcUrl }).toString();
         const buf = await getBinary('/generate_from_pib?' + q);
         const blob = new Blob([buf], { type: 'video/mp4' });
-        const url = URL.createObjectURL(blob);
-        $('pib_preview').src = url;
-        $('pib_download').href = url;
+        const blobUrl = URL.createObjectURL(blob);
+        $('pib_preview').src = blobUrl;
+        $('pib_download').href = blobUrl;
         $('pib_download').download = 'kalaa_pib_video.mp4';
         $('pib_download').classList.remove('hidden');
         $('pib_size').textContent = humanBytes(blob.size);
@@ -359,7 +352,14 @@
       }
     };
 
+    // tiny helpers
     $('y').textContent = new Date().getFullYear();
+
+    // surface any script errors so you can see them
+    window.addEventListener('error', (e) => {
+      alert('Script error: ' + (e?.error?.message || e.message));
+      console.error(e.error || e);
+    });
   </script>
 </body>
 </html>
