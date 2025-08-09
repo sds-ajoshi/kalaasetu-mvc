@@ -18,8 +18,8 @@ SUPPORTED_LANGUAGES = {
 models = {}
 
 def load_model(model_name):
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name, trust_remote_code=True)
     return tokenizer, model
 
 @app.on_event("startup")
