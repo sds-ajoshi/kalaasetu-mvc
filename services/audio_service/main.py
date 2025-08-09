@@ -6,13 +6,22 @@ import sys
 from TTS.utils.manage import ModelManager
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts, XttsAudioConfig
+try:
+    # Some versions expose XttsArgs used during checkpoint load
+    from TTS.tts.models.xtts import XttsArgs  # type: ignore
+except Exception:  # pragma: no cover
+    XttsArgs = None  # type: ignore
+from TTS.config.shared_configs import BaseDatasetConfig
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 from torch.serialization import add_safe_globals
 # Allowlist required classes for torch.load safe unpickling on PyTorch >= 2.6
-add_safe_globals([XttsConfig, XttsAudioConfig])
+_allowlist = [XttsConfig, XttsAudioConfig, BaseDatasetConfig]
+if XttsArgs is not None:
+    _allowlist.append(XttsArgs)
+add_safe_globals(_allowlist)
 
 # Accept Coqui CPML TOS non-interactively
 os.environ.setdefault("COQUI_TOS_AGREED", "1")
