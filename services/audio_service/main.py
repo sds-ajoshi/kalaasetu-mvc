@@ -98,6 +98,7 @@ def generate_audio(req: AudioRequest):
         try:
             outputs = model.synthesize(
                 text=req.text,
+                config=cfg,  # XTTS requires config param
                 speaker_wav=None,
                 language=xtts_lang,
                 split_sentences=True,
