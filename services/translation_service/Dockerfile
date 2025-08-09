@@ -16,7 +16,7 @@ RUN git clone https://github.com/VarunGumma/IndicTransToolkit.git /app/IndicTran
 
 # Copy service files
 COPY ./services/translation_service/main.py .
-COPY ./services/translation_service/requirements.txt .
+COPY ./services/requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt

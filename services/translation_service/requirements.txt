@@ -1,4 +1,0 @@
-# services/translation_service/requirements.txt
-
-fastapi
-uvicorn
