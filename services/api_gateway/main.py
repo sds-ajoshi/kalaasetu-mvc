@@ -54,7 +54,12 @@ async def generate_audio_only(request_data: dict):
         })
 
     if response.status_code != 200:
-        raise HTTPException(status_code=500, detail="Failed to generate audio.")
+        detail = None
+        try:
+            detail = response.text
+        except Exception:
+            detail = None
+        raise HTTPException(status_code=500, detail=(detail or "Failed to generate audio."))
 
     return response.json()
 
@@ -101,7 +106,9 @@ async def generate_content(request_data: dict):
         audio_response, graphics_response = await asyncio.gather(audio_task, graphics_task)
 
         if audio_response.status_code != 200 or graphics_response.status_code != 200:
-            raise HTTPException(status_code=500, detail="Failed to generate audio or graphics.")
+            audio_err = audio_response.text if audio_response.status_code != 200 else None
+            graphics_err = graphics_response.text if graphics_response.status_code != 200 else None
+            raise HTTPException(status_code=500, detail=f"Audio error: {audio_err}; Graphics error: {graphics_err}")
 
         audio_data = audio_response.json()
         image_data = graphics_response.json()
