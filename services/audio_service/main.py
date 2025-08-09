@@ -69,11 +69,39 @@ class AudioRequest(BaseModel):
     tone: str = "neutral"
     language: str = "eng_Latn"
 
+def _generate_with_tts_api(text: str, xtts_lang: str):
+    if CoquiTTS is None:
+        raise RuntimeError("High-level TTS API unavailable")
+    global tts_api_model
+    if tts_api_model is None:
+        tts_api_model = CoquiTTS(MODEL_NAME)
+        if torch.cuda.is_available():
+            try:
+                tts_api_model = tts_api_model.to('cuda')
+            except Exception:
+                pass
+    wav_np = tts_api_model.tts(text=text, language=xtts_lang)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        # Try to get sample rate from config if available
+        sample_rate = 24000
+        try:
+            sample_rate = getattr(getattr(model, "config", None), "audio", None).sample_rate or 24000
+        except Exception:
+            pass
+        sf.write(tmp.name, np.asarray(wav_np).squeeze(), sample_rate)
+        tmp.seek(0)
+        try:
+            info = sf.info(tmp.name)
+            duration_sec = float(info.duration)
+        except Exception:
+            duration_sec = 5.0
+        wav_bytes = tmp.read()
+        audio_b64 = base64.b64encode(wav_bytes).decode("utf-8")
+    return audio_b64, duration_sec
+
+
 @app.post("/generate/audio")
 def generate_audio(req: AudioRequest):
-    if model is None:
-        raise HTTPException(status_code=500, detail="TTS model not loaded")
-    
     try:
         t0 = time.perf_counter()
         # Map IndicTrans-like tags to XTTS language codes where needed
@@ -95,44 +123,50 @@ def generate_audio(req: AudioRequest):
         xtts_lang = lang_map.get(req.language, req.language)
 
         # 🧠 Inference
-        try:
-            outputs = model.synthesize(
-                text=req.text,
-                config=cfg,  # XTTS requires config param
-                speaker_wav=None,
-                language=xtts_lang,
-                split_sentences=True,
-            )
-        except Exception as synth_err:
-            # Fallback to high-level API if available
-            if CoquiTTS is None:
-                raise
-            global tts_api_model
-            if tts_api_model is None:
-                tts_api_model = CoquiTTS(MODEL_NAME)
-                if torch.cuda.is_available():
+        if model is None:
+            audio_data, duration_sec = _generate_with_tts_api(req.text, xtts_lang)
+        else:
+            try:
+                outputs = model.synthesize(
+                    text=req.text,
+                    config=cfg,  # XTTS requires config param in recent versions
+                    speaker_wav=None,
+                    language=xtts_lang,
+                )
+            except Exception:
+                audio_data, duration_sec = _generate_with_tts_api(req.text, xtts_lang)
+            else:
+                # Save to temp file robustly depending on output type
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                    saved = False
+                    if hasattr(outputs, "save_wav"):
+                        try:
+                            outputs.save_wav(tmp.name)
+                            saved = True
+                        except Exception:
+                            saved = False
+                    if not saved:
+                        wav = None
+                        if isinstance(outputs, dict):
+                            wav = outputs.get("wav") or outputs.get("audio") or outputs.get("samples")
+                        elif isinstance(outputs, (list, tuple)) and len(outputs) > 0:
+                            wav = outputs[0]
+                        elif isinstance(outputs, np.ndarray):
+                            wav = outputs
+                        if wav is None:
+                            raise RuntimeError("Unknown synthesize output format")
+                        wav = np.asarray(wav).squeeze()
+                        sr = getattr(getattr(model, "config", None), "audio", None)
+                        sample_rate = getattr(sr, "sample_rate", 24000) if sr else 24000
+                        sf.write(tmp.name, wav, sample_rate)
                     try:
-                        tts_api_model = tts_api_model.to('cuda')
+                        info = sf.info(tmp.name)
+                        duration_sec = float(info.duration)
                     except Exception:
-                        pass
-            # Generate waveform directly (numpy array)
-            wav_np = tts_api_model.tts(text=req.text, language=xtts_lang)
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                # Assume 24000 Hz default if API does not return SR
-                sample_rate = 24000
-                try:
-                    sample_rate = getattr(getattr(model, "config", None), "audio", None).sample_rate or 24000
-                except Exception:
-                    pass
-                sf.write(tmp.name, np.asarray(wav_np).squeeze(), sample_rate)
-                tmp.seek(0)
-                try:
-                    info = sf.info(tmp.name)
-                    duration_sec = float(info.duration)
-                except Exception:
-                    duration_sec = 5.0
-                wav_bytes = tmp.read()
-                audio_data = base64.b64encode(wav_bytes).decode("utf-8")
+                        duration_sec = 5.0
+                    tmp.seek(0)
+                    wav_bytes = tmp.read()
+                    audio_data = base64.b64encode(wav_bytes).decode("utf-8")
             # Build subtitles and return early
             # Build simple subtitles: split text into sentences and spread over duration
             def split_sentences(text: str):
@@ -281,8 +315,7 @@ def generate_audio(req: AudioRequest):
         })
 
     except Exception as e:
-        # Surface detailed error for debugging; in production, return generic
-        raise HTTPException(status_code=500, detail=f"TTS error: {e}")
+        raise HTTPException(status_code=500, detail=f"TTS error: {type(e).__name__}: {e}")
 
 
 @app.get("/health")
