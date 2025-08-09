@@ -28,6 +28,9 @@ AUDIO_SERVICE_URL = os.getenv("AUDIO_SERVICE_URL", "http://audio-service:8002/ge
 VIDEO_SERVICE_URL = os.getenv("VIDEO_SERVICE_URL", "http://video-service:8003/create_video")
 TRANSLATION_SERVICE_URL = os.getenv("TRANSLATION_SERVICE_URL", "http://translation-service:8004/translate")
 
+# Increase client timeouts to tolerate model cold starts
+HTTPX_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
+
 
 @app.get("/")
 def read_root():
@@ -43,7 +46,7 @@ async def generate_audio_only(request_data: dict):
     if not text:
         raise HTTPException(status_code=400, detail="Text input is required.")
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
         response = await client.post(AUDIO_SERVICE_URL, json={
             "text": text,
             "tone": tone,
@@ -72,7 +75,7 @@ async def generate_content(request_data: dict):
 
     # Translate if input is not English
     if src_lang != "eng_Latn":
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
             resp = await client.post(TRANSLATION_SERVICE_URL, json={
                 "text": text,
                 "src_lang": src_lang,
@@ -82,7 +85,7 @@ async def generate_content(request_data: dict):
                 raise HTTPException(status_code=500, detail="Translation failed.")
             english_text = resp.json().get("translated_text")
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
         audio_task = client.post(AUDIO_SERVICE_URL, json={
             "text": original_text,
             "tone": tone,
@@ -110,7 +113,7 @@ async def generate_content(request_data: dict):
         "format": "mp4"
     }
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
         video_response = await client.post(VIDEO_SERVICE_URL, json=video_payload)
 
     if video_response.status_code != 200:
@@ -126,7 +129,7 @@ async def create_final_video(request_data: dict):
         if key not in request_data:
             raise HTTPException(status_code=400, detail=f"{key} is required.")
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=HTTPX_TIMEOUT) as client:
         response = await client.post(VIDEO_SERVICE_URL, json=request_data)
 
     if response.status_code != 200:
