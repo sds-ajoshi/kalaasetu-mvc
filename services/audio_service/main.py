@@ -5,14 +5,14 @@ import tempfile
 import sys
 from TTS.utils.manage import ModelManager
 from TTS.tts.configs.xtts_config import XttsConfig
-from TTS.tts.models.xtts import Xtts
+from TTS.tts.models.xtts import Xtts, XttsAudioConfig
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import JSONResponse
 from torch.serialization import add_safe_globals
-# XttsConfig is already imported; allowlist it for torch.load safe unpickling
-add_safe_globals([XttsConfig])
+# Allowlist required classes for torch.load safe unpickling on PyTorch >= 2.6
+add_safe_globals([XttsConfig, XttsAudioConfig])
 
 # Accept Coqui CPML TOS non-interactively
 os.environ.setdefault("COQUI_TOS_AGREED", "1")
