@@ -7,8 +7,20 @@ from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Kalaa-Setu API Gateway")
+
+# CORS (allow your web page to call the API from a different origin)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],          # or ["http://your-site.com"] in prod
+    allow_methods=["*"],          # allows OPTIONS automatically
+    allow_headers=["*"],
+    allow_credentials=False,      # keep False if you use "*"
+    expose_headers=["Content-Disposition"],
+    max_age=86400,
+)
 
 # Microservice URLs
 GRAPHICS_SERVICE_URL = os.getenv("GRAPHICS_SERVICE_URL", "http://graphics-service:8001/generate/graphics")

@@ -1,275 +1,355 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Kalaa‑Setu MVC — Demo UI</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Kalaa-Setu — MVC Console</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    :root { color-scheme: light dark; }
-    .card { @apply bg-white/70 dark:bg-zinc-900/70 backdrop-blur shadow rounded-2xl p-4 border border-zinc-200/60 dark:border-zinc-800; }
-    .btn  { @apply inline-flex items-center justify-center rounded-xl px-4 py-2 font-medium border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800; }
-    .btn-primary { @apply bg-blue-600 text-white border-blue-600 hover:bg-blue-700; }
-    .field { @apply w-full rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2; }
-    .label { @apply text-sm text-zinc-600 dark:text-zinc-400; }
-  </style>
 </head>
-<body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 min-h-screen">
-  <div class="max-w-6xl mx-auto p-4 space-y-6">
-    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <h1 class="text-2xl font-bold">Kalaa‑Setu MVC — Single Page UI</h1>
-        <p class="text-sm text-zinc-600 dark:text-zinc-400">Call your API Gateway to generate audio and video, or build from a PIB URL.</p>
+<body class="bg-slate-50 text-slate-800">
+  <!-- Header -->
+  <header class="bg-white border-b">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <h1 class="text-xl font-semibold tracking-tight">Kalaa-Setu MVC</h1>
+      <div class="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+        <input id="baseUrl" type="text" class="w-full sm:w-[26rem] px-3 py-2 rounded-lg border focus:outline-none focus:ring focus:border-sky-400"
+               placeholder="API Base URL, e.g. http://localhost:8000" />
+        <button id="saveBase" class="px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700">Use API</button>
       </div>
-      <div class="card flex items-center gap-2">
-        <label class="label" for="apiBase">API Base</label>
-        <input id="apiBase" class="field" placeholder="http://34.29.237.159:8000" />
-        <button class="btn" onclick="saveBase()">Save</button>
-      </div>
-    </header>
+    </div>
+  </header>
 
-    <!-- Status / Health -->
-    <section class="grid md:grid-cols-3 gap-4">
-      <div class="card">
-        <div class="flex items-center justify-between">
-          <h2 class="font-semibold">Gateway Status</h2>
-          <button class="btn" onclick="checkGateway()">Check</button>
+  <main class="max-w-6xl mx-auto px-4 py-6 grid gap-6">
+    <!-- Text ➜ Video -->
+    <section class="bg-white rounded-2xl shadow-sm border p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">Generate Video from Text</h2>
+        <span class="text-xs rounded-full bg-slate-100 px-2 py-1">POST /generate/video_from_text</span>
+      </div>
+
+      <div class="grid gap-4 md:grid-cols-2">
+        <div class="grid gap-3">
+          <textarea id="txt_text" rows="7" class="w-full px-3 py-2 rounded-lg border focus:ring focus:border-sky-400"
+            placeholder="Paste your script here..."></textarea>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm mb-1">Tone</label>
+              <select id="txt_tone" class="w-full px-3 py-2 rounded-lg border">
+                <option value="neutral">neutral</option>
+                <option value="formal" selected>formal</option>
+                <option value="friendly">friendly</option>
+                <option value="enthusiastic">enthusiastic</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm mb-1">Language (src)</label>
+              <select id="txt_lang" class="w-full px-3 py-2 rounded-lg border">
+                <option value="eng_Latn" selected>English (eng_Latn)</option>
+                <option value="hin_Deva">Hindi (hin_Deva)</option>
+                <option value="tam_Taml">Tamil (tam_Taml)</option>
+                <option value="tel_Telu">Telugu (tel_Telu)</option>
+                <option value="ben_Beng">Bengali (ben_Beng)</option>
+                <option value="mar_Deva">Marathi (mar_Deva)</option>
+                <option value="guj_Gujr">Gujarati (guj_Gujr)</option>
+                <option value="kan_Knda">Kannada (kan_Knda)</option>
+                <option value="mal_Mlym">Malayalam (mal_Mlym)</option>
+                <option value="pan_Guru">Punjabi (pan_Guru)</option>
+                <option value="urd_Arab">Urdu (urd_Arab)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm mb-1">Domain</label>
+              <select id="txt_domain" class="w-full px-3 py-2 rounded-lg border">
+                <option value="general">general</option>
+                <option value="governance" selected>governance</option>
+                <option value="education">education</option>
+                <option value="health">health</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm mb-1">Environment</label>
+              <select id="txt_env" class="w-full px-3 py-2 rounded-lg border">
+                <option value="neutral">neutral</option>
+                <option value="official" selected>official</option>
+                <option value="outdoor">outdoor</option>
+                <option value="studio">studio</option>
+              </select>
+            </div>
+          </div>
+
+          <button id="btn_text2video" class="mt-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700">
+            Generate Video
+          </button>
         </div>
-        <pre id="status" class="mt-3 text-xs whitespace-pre-wrap"></pre>
-      </div>
 
-      <div class="card">
-        <div class="flex items-center justify-between">
-          <h2 class="font-semibold">Quick Tips</h2>
-        </div>
-        <ul class="mt-2 text-sm list-disc pl-5 space-y-1 text-zinc-600 dark:text-zinc-400">
-          <li>Make sure the Audio service is healthy; PIB → Video calls audio & graphics.</li>
-          <li>Long PIB pages can take ~30–90s. Be patient.</li>
-          <li>Try tone <code>formal</code>, domain <code>governance</code>, env <code>official</code>.</li>
-        </ul>
-      </div>
-
-      <div class="card">
-        <h2 class="font-semibold">Downloads</h2>
-        <div class="mt-2 space-y-2 text-sm">
-          <a id="downloadLink" class="btn w-full justify-center hidden" download>Download Last Video</a>
-          <a id="downloadAudioLink" class="btn w-full justify-center hidden" download>Download Last Audio</a>
+        <div class="grid gap-3">
+          <div class="rounded-xl border bg-slate-50 p-3">
+            <p class="text-sm font-medium mb-2">Preview</p>
+            <video id="video_preview" class="w-full rounded-lg border bg-black aspect-video" controls></video>
+            <div class="mt-2 flex items-center gap-3">
+              <a id="video_download" class="px-3 py-2 rounded-lg bg-slate-800 text-white text-sm hidden">Download MP4</a>
+              <span id="video_size" class="text-xs text-slate-500"></span>
+            </div>
+          </div>
+          <div class="rounded-xl border bg-slate-50 p-3">
+            <p class="text-sm font-medium mb-2">Status</p>
+            <pre id="log_text" class="text-xs whitespace-pre-wrap font-mono text-slate-700"></pre>
+          </div>
         </div>
       </div>
     </section>
 
-    <!-- Row: Text → Video and Audio Only -->
-    <section class="grid md:grid-cols-2 gap-4">
-      <!-- Text -> Video -->
-      <div class="card space-y-3">
-        <h2 class="font-semibold">Text → Video</h2>
-        <div class="space-y-2">
-          <label class="label">Text</label>
-          <textarea id="tv_text" class="field h-36" placeholder="Paste your script or paragraph..."></textarea>
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="label">Tone</label>
-            <input id="tv_tone" class="field" value="neutral" />
-          </div>
-          <div>
-            <label class="label">Domain</label>
-            <input id="tv_domain" class="field" value="general" />
-          </div>
-          <div>
-            <label class="label">Environment</label>
-            <input id="tv_env" class="field" value="neutral" />
-          </div>
-          <div>
-            <label class="label">Language (src)</label>
-            <input id="tv_lang" class="field" value="eng_Latn" />
-          </div>
-        </div>
-        <div class="flex gap-2">
-          <button class="btn-primary btn" onclick="textToVideo()">Generate Video</button>
-          <span id="tv_status" class="text-sm text-zinc-600 dark:text-zinc-400"></span>
-        </div>
+    <!-- Audio only -->
+    <section class="bg-white rounded-2xl shadow-sm border p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">Generate Audio Only</h2>
+        <span class="text-xs rounded-full bg-slate-100 px-2 py-1">POST /generate/audio_only</span>
       </div>
 
-      <!-- Audio Only -->
-      <div class="card space-y-3">
-        <h2 class="font-semibold">Audio Only</h2>
-        <div class="space-y-2">
-          <label class="label">Text</label>
-          <textarea id="ao_text" class="field h-36" placeholder="Say something nice..."></textarea>
+      <div class="grid gap-4 md:grid-cols-2">
+        <div class="grid gap-3">
+          <textarea id="aud_text" rows="6" class="w-full px-3 py-2 rounded-lg border focus:ring focus:border-sky-400"
+            placeholder="Paste text for narration..."></textarea>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm mb-1">Tone</label>
+              <select id="aud_tone" class="w-full px-3 py-2 rounded-lg border">
+                <option value="neutral" selected>neutral</option>
+                <option value="formal">formal</option>
+                <option value="friendly">friendly</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm mb-1">Language (src)</label>
+              <select id="aud_lang" class="w-full px-3 py-2 rounded-lg border">
+                <option value="eng_Latn" selected>English (eng_Latn)</option>
+                <option value="hin_Deva">Hindi (hin_Deva)</option>
+                <option value="tam_Taml">Tamil (tam_Taml)</option>
+                <option value="tel_Telu">Telugu (tel_Telu)</option>
+                <option value="ben_Beng">Bengali (ben_Beng)</option>
+              </select>
+            </div>
+          </div>
+
+          <button id="btn_audio" class="mt-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700">
+            Generate Audio
+          </button>
         </div>
-        <div class="grid grid-cols-3 gap-3">
-          <div>
-            <label class="label">Tone</label>
-            <input id="ao_tone" class="field" value="neutral" />
+
+        <div class="grid gap-3">
+          <div class="rounded-xl border bg-slate-50 p-3">
+            <p class="text-sm font-medium mb-2">Preview</p>
+            <audio id="audio_preview" class="w-full" controls></audio>
+            <div class="mt-2 flex items-center gap-3">
+              <a id="audio_download" class="px-3 py-2 rounded-lg bg-slate-800 text-white text-sm hidden">Download Audio</a>
+              <span id="audio_size" class="text-xs text-slate-500"></span>
+            </div>
           </div>
-          <div>
-            <label class="label">Language</label>
-            <input id="ao_lang" class="field" value="eng_Latn" />
-          </div>
-          <div class="flex items-end">
-            <button class="btn-primary btn w-full" onclick="audioOnly()">Generate Audio</button>
+          <div class="rounded-xl border bg-slate-50 p-3">
+            <p class="text-sm font-medium mb-2">Status</p>
+            <pre id="log_audio" class="text-xs whitespace-pre-wrap font-mono text-slate-700"></pre>
           </div>
         </div>
-        <span id="ao_status" class="text-sm text-zinc-600 dark:text-zinc-400"></span>
-        <audio id="ao_player" class="w-full mt-2" controls></audio>
       </div>
     </section>
 
-    <!-- PIB → Video -->
-    <section class="card space-y-3">
-      <h2 class="font-semibold">PIB URL → Video</h2>
-      <div class="grid md:grid-cols-[1fr_auto] gap-3">
-        <input id="pib_url" class="field" placeholder="https://www.pib.gov.in/PressReleasePage.aspx?PRID=1942412" />
-        <button class="btn-primary btn" onclick="pibToVideo()">Generate From PIB</button>
+    <!-- PIB URL ➜ Video -->
+    <section class="bg-white rounded-2xl shadow-sm border p-5">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold">Generate Video from PIB URL</h2>
+        <span class="text-xs rounded-full bg-slate-100 px-2 py-1">GET /generate_from_pib</span>
       </div>
-      <span id="pib_status" class="text-sm text-zinc-600 dark:text-zinc-400"></span>
+
+      <div class="grid gap-4 md:grid-cols-2">
+        <div class="grid gap-3">
+          <input id="pib_url" type="url" class="w-full px-3 py-2 rounded-lg border"
+                 placeholder="https://www.pib.gov.in/PressReleasePage.aspx?PRID=..." />
+          <button id="btn_pib" class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700">
+            Generate Video
+          </button>
+        </div>
+
+        <div class="grid gap-3">
+          <div class="rounded-xl border bg-slate-50 p-3">
+            <p class="text-sm font-medium mb-2">Preview</p>
+            <video id="pib_preview" class="w-full rounded-lg border bg-black aspect-video" controls></video>
+            <div class="mt-2 flex items-center gap-3">
+              <a id="pib_download" class="px-3 py-2 rounded-lg bg-slate-800 text-white text-sm hidden">Download MP4</a>
+              <span id="pib_size" class="text-xs text-slate-500"></span>
+            </div>
+          </div>
+          <div class="rounded-xl border bg-slate-50 p-3">
+            <p class="text-sm font-medium mb-2">Status</p>
+            <pre id="log_pib" class="text-xs whitespace-pre-wrap font-mono text-slate-700"></pre>
+          </div>
+        </div>
+      </div>
     </section>
+  </main>
 
-    <!-- Output -->
-    <section class="grid md:grid-cols-2 gap-4">
-      <div class="card">
-        <h3 class="font-semibold">Video Output</h3>
-        <video id="video_out" class="w-full mt-2 rounded-xl" controls></video>
-      </div>
-      <div class="card">
-        <h3 class="font-semibold">Logs</h3>
-        <pre id="logs" class="text-xs mt-2 max-h-80 overflow-auto whitespace-pre-wrap"></pre>
-      </div>
-    </section>
-  </div>
+  <footer class="text-center text-xs text-slate-500 py-8">
+    © <span id="y"></span> Kalaa-Setu
+  </footer>
 
-<script>
-  const $ = (id) => document.getElementById(id);
+  <script>
+    // ---------- utilities ----------
+    const $ = (id) => document.getElementById(id);
+    const setBusy = (el, busy) => {
+      if (!el) return;
+      busy ? el.setAttribute('disabled', 'disabled') : el.removeAttribute('disabled');
+      el.classList.toggle('opacity-60', !!busy);
+      el.classList.toggle('cursor-not-allowed', !!busy);
+    };
+    const humanBytes = (n) => {
+      if (!n && n !== 0) return '';
+      const units = ['B','KB','MB','GB']; let u=0; while(n>=1024 && u<units.length-1){ n/=1024; u++; }
+      return `${n.toFixed(1)} ${units[u]}`;
+    };
 
-  function baseUrl() {
-    return localStorage.getItem('apiBase') || $('apiBase').value || 'http://localhost:8000';
-  }
-  function saveBase() {
-    localStorage.setItem('apiBase', $('apiBase').value.trim());
-    note('status', `Saved base URL: ${baseUrl()}`);
-  }
-  (function init() {
-    const saved = localStorage.getItem('apiBase');
-    if (saved) $('apiBase').value = saved;
-    else $('apiBase').value = 'http://34.171.46.178:8000';
-  })();
+    // Persist base URL
+    const defaultBase = window.location.origin.includes('http') ? window.location.origin : 'http://localhost:8000';
+    $('baseUrl').value = localStorage.getItem('kalaa_api_base') || defaultBase;
+    $('saveBase').onclick = () => {
+      localStorage.setItem('kalaa_api_base', $('baseUrl').value.trim());
+      toast('API base set.');
+    };
 
-  function note(id, msg) {
-    const el = $(id);
-    if (el) el.textContent = msg;
-    appendLog(msg);
-  }
-  function appendLog(msg) {
-    const ts = new Date().toLocaleTimeString();
-    $('logs').textContent += `[${ts}] ${msg}\n`;
-    const pre = $('logs');
-    pre.scrollTop = pre.scrollHeight;
-  }
+    const apiBase = () => (localStorage.getItem('kalaa_api_base') || $('baseUrl').value || '').replace(/\/+$/,'');
+    const toast = (msg) => {
+      console.log(msg);
+      // simple inline status bump; could be enhanced with a toast library
+    };
 
-  async function checkGateway() {
-    try {
-      note('status', 'Pinging gateway...');
-      const res = await fetch(baseUrl() + '/');
-      const js = await res.json().catch(() => ({}));
-      note('status', `${res.status} ${res.statusText} — ${JSON.stringify(js)}`);
-    } catch (e) {
-      note('status', 'Gateway unreachable: ' + e.message);
-    }
-  }
-
-  async function textToVideo() {
-    const text = $('tv_text').value.trim();
-    const tone = $('tv_tone').value.trim() || 'neutral';
-    const domain = $('tv_domain').value.trim() || 'general';
-    const environment = $('tv_env').value.trim() || 'neutral';
-    const language = $('tv_lang').value.trim() || 'eng_Latn';
-    if (!text) { note('tv_status', 'Please enter text.'); return; }
-
-    $('tv_status').textContent = 'Working...';
-    appendLog('Text→Video: sending request');
-
-    try {
-      const res = await fetch(baseUrl() + '/generate/video_from_text', {
+    async function postJSON(path, body, expectBinary = false) {
+      const url = `${apiBase()}${path}`;
+      const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, tone, domain, environment, language })
+        headers: expectBinary ? {} : {'Content-Type': 'application/json'},
+        body: expectBinary ? body : JSON.stringify(body)
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      $('video_out').src = url;
-      showDownload('downloadLink', blob, 'kalaa-setu-output.mp4');
-      $('tv_status').textContent = 'Done.';
-      appendLog('Text→Video: success');
-    } catch (e) {
-      $('tv_status').textContent = 'Error.';
-      appendLog('Text→Video error: ' + e.message);
-      alert('Failed: ' + e.message);
+      if (!res.ok) {
+        const text = await res.text().catch(()=> '');
+        throw new Error(`${res.status} ${res.statusText} — ${text || 'request failed'}`);
+      }
+      return expectBinary ? res.arrayBuffer() : res.json();
     }
-  }
-
-  async function pibToVideo() {
-    const url = $('pib_url').value.trim();
-    if (!url) { note('pib_status', 'Enter a PIB URL.'); return; }
-    $('pib_status').textContent = 'Working...';
-    appendLog('PIB→Video: requesting ' + url);
-    try {
-      const res = await fetch(baseUrl() + '/generate_from_pib?url=' + encodeURIComponent(url));
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const vurl = URL.createObjectURL(blob);
-      $('video_out').src = vurl;
-      showDownload('downloadLink', blob, 'pib-video.mp4');
-      $('pib_status').textContent = 'Done.';
-      appendLog('PIB→Video: success');
-    } catch (e) {
-      $('pib_status').textContent = 'Error.';
-      appendLog('PIB→Video error: ' + e.message);
-      alert('Failed: ' + e.message);
+    async function getBinary(path) {
+      const url = `${apiBase()}${path}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const text = await res.text().catch(()=> '');
+        throw new Error(`${res.status} ${res.statusText} — ${text || 'request failed'}`);
+      }
+      return res.arrayBuffer();
     }
-  }
 
-  async function audioOnly() {
-    const text = $('ao_text').value.trim();
-    const tone = $('ao_tone').value.trim() || 'neutral';
-    const language = $('ao_lang').value.trim() || 'eng_Latn';
-    if (!text) { note('ao_status', 'Please enter text.'); return; }
+    // ---------- Text ➜ Video ----------
+    $('btn_text2video').onclick = async () => {
+      const log = $('log_text');
+      const btn = $('btn_text2video');
+      const text = $('txt_text').value.trim();
+      const tone = $('txt_tone').value;
+      const domain = $('txt_domain').value;
+      const environment = $('txt_env').value;
+      const language = $('txt_lang').value;
 
-    $('ao_status').textContent = 'Working...';
-    appendLog('Audio-only: sending request');
+      log.textContent = '';
+      if (!text) return log.textContent = 'Please enter some text.';
 
-    try {
-      const res = await fetch(baseUrl() + '/generate/audio_only', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, tone, language })
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const b64 = data?.audio || data?.audio_base64 || null;
-      if (!b64) throw new Error('No audio returned');
-      const src = 'data:audio/mp3;base64,' + b64;
-      $('ao_player').src = src;
-      showDataUrlDownload('downloadAudioLink', src, 'kalaa-setu-audio.mp3');
-      $('ao_status').textContent = 'Done.';
-      appendLog('Audio-only: success');
-    } catch (e) {
-      $('ao_status').textContent = 'Error.';
-      appendLog('Audio-only error: ' + e.message);
-      alert('Failed: ' + e.message);
-    }
-  }
+      try {
+        setBusy(btn, true);
+        log.textContent = 'Submitting...';
+        const buf = await postJSON('/generate/video_from_text', { text, tone, domain, environment, language }, true);
+        const blob = new Blob([buf], { type: 'video/mp4' });
+        const url = URL.createObjectURL(blob);
+        $('video_preview').src = url;
+        $('video_download').href = url;
+        $('video_download').download = 'kalaa_video.mp4';
+        $('video_download').classList.remove('hidden');
+        $('video_size').textContent = humanBytes(blob.size);
+        log.textContent = 'Done.';
+      } catch (e) {
+        log.textContent = 'Error: ' + e.message;
+      } finally {
+        setBusy(btn, false);
+      }
+    };
 
-  function showDownload(anchorId, blob, filename) {
-    const a = $(anchorId);
-    const url = URL.createObjectURL(blob);
-    a.href = url; a.download = filename; a.classList.remove('hidden');
-  }
-  function showDataUrlDownload(anchorId, dataUrl, filename) {
-    const a = $(anchorId);
-    a.href = dataUrl; a.download = filename; a.classList.remove('hidden');
-  }
-</script>
+    // ---------- Audio only ----------
+    $('btn_audio').onclick = async () => {
+      const log = $('log_audio');
+      const btn = $('btn_audio');
+      const text = $('aud_text').value.trim();
+      const tone = $('aud_tone').value;
+      const language = $('aud_lang').value;
+
+      log.textContent = '';
+      if (!text) return log.textContent = 'Please enter text for audio.';
+
+      try {
+        setBusy(btn, true);
+        log.textContent = 'Submitting...';
+        const resp = await postJSON('/generate/audio_only', { text, tone, language });
+        if (!resp || !resp.audio) throw new Error('Audio payload missing.');
+        // resp.audio is base64 audio string
+        const src = 'data:audio/mpeg;base64,' + resp.audio;
+        $('audio_preview').src = src;
+
+        // Make a downloadable blob
+        const byteChars = atob(resp.audio);
+        const bytes = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
+        const blob = new Blob([bytes], { type: 'audio/mpeg' });
+        const url = URL.createObjectURL(blob);
+        $('audio_download').href = url;
+        $('audio_download').download = 'kalaa_audio.mp3';
+        $('audio_download').classList.remove('hidden');
+        $('audio_size').textContent = humanBytes(blob.size);
+
+        log.textContent = 'Done.';
+      } catch (e) {
+        log.textContent = 'Error: ' + e.message;
+      } finally {
+        setBusy(btn, false);
+      }
+    };
+
+    // ---------- PIB URL ➜ Video ----------
+    $('btn_pib').onclick = async () => {
+      const log = $('log_pib');
+      const btn = $('btn_pib');
+      const srcUrl = $('pib_url').value.trim();
+
+      log.textContent = '';
+      if (!srcUrl) return log.textContent = 'Please paste a PIB URL.';
+
+      try {
+        setBusy(btn, true);
+        log.textContent = 'Fetching & generating...';
+        // GET /generate_from_pib?url=...
+        const q = new URLSearchParams({ url: srcUrl }).toString();
+        const buf = await getBinary('/generate_from_pib?' + q);
+        const blob = new Blob([buf], { type: 'video/mp4' });
+        const url = URL.createObjectURL(blob);
+        $('pib_preview').src = url;
+        $('pib_download').href = url;
+        $('pib_download').download = 'kalaa_pib_video.mp4';
+        $('pib_download').classList.remove('hidden');
+        $('pib_size').textContent = humanBytes(blob.size);
+        log.textContent = 'Done.';
+      } catch (e) {
+        log.textContent = 'Error: ' + e.message;
+      } finally {
+        setBusy(btn, false);
+      }
+    };
+
+    $('y').textContent = new Date().getFullYear();
+  </script>
 </body>
 </html>
